@@ -2,16 +2,17 @@
 
 Research engine for financial-statement, insider-transaction, market, and macro features intended to estimate future stock returns. Works alongside TMF Predictive Analytics and informs the portfolio optimizer before the execution engine acts.
 
-**Status: Phase 1 foundation. No forecasts, trading recommendations, or established predictive edge yet.**
+**Status: Phase 1 ingestion and normalization. No forecasts, trading recommendations, or established predictive edge yet.**
 
 ## Implemented
 
 - Identified SEC JSON client with conservative throttling, bounded retries, caching, and immutable SHA-256 snapshots.
 - Submissions ingestion including additional historical pages declared by the SEC response.
-- Raw Company Facts snapshot with provenance. Financial facts are not yet normalized or safe to use as historical features.
+- Raw Company Facts snapshots plus a narrow US-GAAP normalization layer, with filing-version provenance and as-of selection.
+- Form 4 XML parsing for derivative/non-derivative transactions, holdings, joint reporting owners, plan flags, footnotes, and amendments.
 - Version-preserving filing ledger: acceptance, observation, report period, amendment flag, and source URL.
 - Separate historical and live availability cutoffs; unknown acceptance timestamps are excluded from as-of queries.
-- Offline tests for availability, amendments, duplicates, malformed inputs, cache integrity, throttling, and HTTP failures.
+- Offline tests for availability, amendments, duplicates, malformed inputs, cache integrity, throttling, HTTP failures, and normalization commands.
 
 ## Setup and tests
 
@@ -51,9 +52,13 @@ The client is sequential and uses two requests per second by default. Coordinate
 
 The ledger uses acceptance metadata plus a declared processing delay as a conservative historical availability proxy. Live availability also respects actual download time. This is a timestamp ledger, not an exchange calendar: a later step must map eligible timestamps to the next trading session. Do not use report dates or insider transaction dates as public availability timestamps.
 
-Later comparative disclosures and restatements must not overwrite information available at earlier decision dates. Company Facts is archived here but has not been converted to an as-of feature panel. Missing acceptance times remain unknown; historical pages without those times need filing-header enrichment before use.
+Later comparative disclosures and restatements must not overwrite information available at earlier decision dates. The normalization command retains fact versions and selects facts only after their ledger availability cutoff. It does not yet construct a market-session feature panel. Missing acceptance times remain unknown; historical pages without those times need filing-header enrichment before use.
 
-Raw Form 4 XML documents, normalized transactions, security/ticker history, session calendars, financial tag mappings, total-return labels, and models are **not implemented**. Current ingestion retrieves JSON metadata and Company Facts, not the full filing documents linked in the ledger. Refresh observations do not reconstruct what our system downloaded before it existed.
+Individual raw Form 4 XML can now be downloaded and cached through the normalization command. Bulk document discovery, security/ticker history, session calendars, total-return labels, and models are **not implemented**. Financial mappings are limited to ten US-GAAP metrics; custom tags, IFRS, segments, and industry-specific accounting remain uncovered. Refresh observations do not reconstruct what our system downloaded before it existed.
+
+## Normalize financial facts and Form 4
+
+See [normalization guide](docs/normalization.md) for commands, output fields, and limitations. Start with an ingestion run's ledger and the Company Facts raw path listed in its manifest. The normalization command creates a new run directory containing `normalized.json` and `manifest.json`.
 
 ## Integration and research roadmap
 

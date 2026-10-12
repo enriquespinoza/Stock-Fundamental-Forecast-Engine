@@ -71,7 +71,10 @@ def build_ledger(cik: str, pages: list[dict], *, observed_at: str,
                 raise ValueError("Filing acceptance is later than snapshot observation")
             status = "TIMESTAMP_AVAILABLE"
         document = record["primaryDocument"]
-        if not isinstance(document, str) or (document and not re.fullmatch(r"[A-Za-z0-9_.-]+", document)):
+        if not isinstance(document, str) or (document and (
+            not re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", document)
+            or any(part in (".", "..") for part in document.split("/"))
+        )):
             raise ValueError("Invalid primary document name")
         rows.append({
             "schema_version": SCHEMA_VERSION, "issuer_cik": cik,

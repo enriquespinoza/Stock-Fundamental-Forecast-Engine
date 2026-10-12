@@ -10,13 +10,14 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
+from xml.etree import ElementTree as ET
 
 from .ledger import utc_text
 
 
 @dataclass(frozen=True)
 class Snapshot:
-    payload: dict
+    payload: dict | bytes
     source_url: str
     observed_at_utc: str
     sha256: str
@@ -49,9 +50,36 @@ class SecClient:
         self.last_request = self.clock()
 
     def fetch_json(self, url: str, *, refresh: bool = False) -> Snapshot:
+        return self._fetch(url, refresh=refresh, kind="json")
+
+    def fetch_xml(self, url: str, *, refresh: bool = False) -> Snapshot:
+        return self._fetch(url, refresh=refresh, kind="xml")
+
+    @staticmethod
+    def _decode(raw, kind):
+        if kind == "json":
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("SEC JSON must be an object")
+            return payload
+        if len(raw) > 10_000_000:
+            raise ValueError("Ownership XML exceeds size limit")
+        decoded = raw.decode("utf-8-sig")
+        if re.search(r"<!\s*(DOCTYPE|ENTITY)\b", decoded, flags=re.IGNORECASE):
+            raise ValueError("DTD and entity declarations are not permitted")
+        root = ET.fromstring(decoded)
+        if root.tag.rsplit("}", 1)[-1] != "ownershipDocument":
+            raise ValueError("Expected raw ownership XML")
+        return raw
+
+    def _fetch(self, url: str, *, refresh: bool, kind: str) -> Snapshot:
         parsed = urlsplit(url)
-        if parsed.scheme != "https" or parsed.netloc != "data.sec.gov" or parsed.query or parsed.fragment:
-            raise ValueError("Only plain HTTPS data.sec.gov URLs are permitted")
+        valid_host = parsed.netloc == "data.sec.gov" if kind == "json" else (
+            parsed.netloc == "www.sec.gov" and re.fullmatch(
+                r"/Archives/edgar/data/[0-9]+/[0-9]{18}/[A-Za-z0-9_.-]+\.xml", parsed.path)
+        )
+        if parsed.scheme != "https" or not valid_host or parsed.query or parsed.fragment:
+            raise ValueError("URL must be a permitted SEC data or raw ownership archive URL")
         key = hashlib.sha256(url.encode()).hexdigest()
         folder = self.cache_dir / key
         pointer = folder / "latest.json"
@@ -60,14 +88,14 @@ class SecClient:
             digest = metadata["sha256"]
             if not re.fullmatch(r"[0-9a-f]{64}", digest) or metadata["source_url"] != url:
                 raise ValueError("Invalid snapshot metadata")
-            path = folder / f"{digest}.json"
+            path = folder / f"{digest}.{kind}"
             raw = path.read_bytes()
             if hashlib.sha256(raw).hexdigest() != digest:
                 raise ValueError("Cached snapshot checksum mismatch")
-            return Snapshot(json.loads(raw), url, metadata["observed_at_utc"], digest, path, True)
+            return Snapshot(self._decode(raw, kind), url, metadata["observed_at_utc"], digest, path, True)
         for attempt in range(self.retries + 1):
             self._throttle()
-            request = Request(url, headers={"User-Agent": self.user_agent, "Accept": "application/json"})
+            request = Request(url, headers={"User-Agent": self.user_agent, "Accept": f"application/{kind}"})
             try:
                 with self.opener(request, timeout=self.timeout) as response:
                     raw = response.read()
@@ -81,13 +109,11 @@ class SecClient:
                 header = error.headers.get("Retry-After", "") if isinstance(error, HTTPError) and error.headers else ""
                 delay = max(2 ** attempt, min(float(header), 120)) if header.isdigit() else 2 ** attempt
                 self.sleep(delay)
-        payload = json.loads(raw)
-        if not isinstance(payload, dict):
-            raise ValueError("SEC JSON must be an object")
+        payload = self._decode(raw, kind)
         digest = hashlib.sha256(raw).hexdigest()
         observed = utc_text(self.now())
         folder.mkdir(parents=True, exist_ok=True)
-        path = folder / f"{digest}.json"
+        path = folder / f"{digest}.{kind}"
         if path.exists() and path.read_bytes() != raw:
             raise ValueError("Snapshot content conflict")
         if not path.exists():
