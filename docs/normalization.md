@@ -60,6 +60,19 @@ Amendments remain separate and are withheld from automatic candidate aggregation
 
 Historical availability comes from filing acceptance plus the ledger's declared delay. Live availability additionally respects actual XML acquisition. Insider transaction dates never establish public availability. DTD/entity declarations, issuer/form mismatches, invalid numeric amounts, and unresolved footnotes fail explicitly. The parser accepts UTF-8 ownership XML with or without namespaces and is not a full SEC XML-schema validator.
 
+### Form 4 history audit
+
+After a batch normalization run, audit normalized artifact coverage, hashes, transaction counts, owner roles, amendment and 10b5-1 flags, candidate buys/sales, and quality flags:
+
+```bash
+python scripts/audit_form4_history.py \
+  --ledger "PATH_TO_FILING_LEDGER.jsonl" \
+  --normalized-root data/normalized \
+  --batch-summary "PATH_TO_FORM4_BATCH_SUMMARY.json"
+```
+
+The audit writes `data/processed/form4_history_audit.json`. It checks normalized-file hashes against their manifests, source hashes against each normalized filing and cached raw source when available, and ledger hashes against the selected ledger. Duplicate normalized runs are reported separately from unique accession coverage. A failed batch item whose ledger primary document is HTML is classified as `UNSUPPORTED_SOURCE_FORMAT`; the raw XML parser does not accept that legacy HTML representation. This audit covers ingestion and normalization only; it does not calculate returns or establish predictive value.
+
 ## Before correlation research
 
 Audit representative real issuers and transaction types; enrich missing acceptance metadata; reconcile amendments and duplicate economic events; map identities and timestamps to exchange sessions; and join verified total-return labels. Current tests establish deterministic behavior against synthetic inputs, not predictive performance or complete SEC coverage.
