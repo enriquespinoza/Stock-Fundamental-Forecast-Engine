@@ -85,6 +85,19 @@ python scripts/build_form4_events.py \
 
 The command chooses the latest normalized run for each accession, verifies each normalized-file hash and its source-hash agreement with the filing, then writes one `candidate_transactions.csv` row per transaction. `historical_available_after_utc` is the knowledge timestamp for later as-of joins; `transaction_date` is retained separately. The export keeps owner roles, the nullable 10b5-1 flag, filing and amendment context, amounts, and source hashes. Amendments and flagged rows are excluded. P/S candidate status is a structural filter and does not prove an open-market discretionary trade. The export contains no price-return labels.
 
+### Point-in-time financial join
+
+Attach financial statement facts to each candidate event using the event's historical availability cutoff:
+
+```bash
+python scripts/join_form4_financials.py \
+  --events "PATH_TO_EVENT_RUN/candidate_transactions.csv" \
+  --financials "PATH_TO_FINANCIAL_RUN/normalized.json" \
+  --output-root data/processed/form4_financial_joins
+```
+
+Use the normalized financial output containing the complete `facts` history, not only its one-run `selected_facts` list. For each event, the join selects facts whose `historical_available_after_utc` is at or before the event's `historical_available_after_utc`. It chooses the latest period end per metric; when duration facts share an end date it prefers quarter, annual, nine-month YTD, half-year YTD, then other duration. Period kind, exact dates, accession, tag, and fact age remain attached. Missing metrics are explicit rows with `NO_ELIGIBLE_FACT_AS_OF_EVENT`. Free cash flow is derived only from aligned operating cash flow and capital expenditure facts from the same filing version and exact period. The output has one row per event and mapped metric, records normalization issues, and contains no return labels.
+
 ## Before correlation research
 
 Audit representative real issuers and transaction types; enrich missing acceptance metadata; reconcile amendments and duplicate economic events; map identities and timestamps to exchange sessions; and join verified total-return labels. Current tests establish deterministic behavior against synthetic inputs, not predictive performance or complete SEC coverage.
