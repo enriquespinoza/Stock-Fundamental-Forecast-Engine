@@ -84,7 +84,7 @@ def parse_form4(raw: bytes, filing: dict) -> dict:
             raise ValueError("Missing or duplicate footnote ID")
         footnotes[identifier] = " ".join("".join(note.itertext()).split())
     context = {key: filing.get(key) for key in (
-        "issuer_cik", "accession_number", "accepted_at_utc", "observed_at_utc",
+        "issuer_cik", "accession_number", "accepted_at_utc", "observed_at_utc", "filing_date",
         "historical_available_after_utc", "live_available_after_utc", "availability_status", "source_url")}
     context.update({"schema_version": "form4-normalized-v1", "form": form,
                     "is_amendment": form == "4/A", "raw_sha256": hashlib.sha256(raw).hexdigest(),
