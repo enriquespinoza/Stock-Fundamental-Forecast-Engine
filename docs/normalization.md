@@ -73,6 +73,18 @@ python scripts/audit_form4_history.py \
 
 The audit writes `data/processed/form4_history_audit.json`. It checks normalized-file hashes against their manifests, source hashes against each normalized filing and cached raw source when available, and ledger hashes against the selected ledger. A missing raw cache file is reported as unavailable; a present file with a mismatched digest is an integrity issue. Duplicate normalized runs are reported separately from unique accession coverage. A ledger item whose primary document is HTML is classified as `UNSUPPORTED_SOURCE_FORMAT`; the raw XML parser does not accept that legacy HTML representation. This audit covers ingestion and normalization only; it does not calculate returns or establish predictive value.
 
+### Candidate transaction event export
+
+After the audit passes, export structurally eligible non-derivative P/S rows:
+
+```bash
+python scripts/build_form4_events.py \
+  --normalized-root data/normalized \
+  --output-root data/processed/form4_events
+```
+
+The command chooses the latest normalized run for each accession, verifies each normalized-file hash and its source-hash agreement with the filing, then writes one `candidate_transactions.csv` row per transaction. `historical_available_after_utc` is the knowledge timestamp for later as-of joins; `transaction_date` is retained separately. The export keeps owner roles, the nullable 10b5-1 flag, filing and amendment context, amounts, and source hashes. Amendments and flagged rows are excluded. P/S candidate status is a structural filter and does not prove an open-market discretionary trade. The export contains no price-return labels.
+
 ## Before correlation research
 
 Audit representative real issuers and transaction types; enrich missing acceptance metadata; reconcile amendments and duplicate economic events; map identities and timestamps to exchange sessions; and join verified total-return labels. Current tests establish deterministic behavior against synthetic inputs, not predictive performance or complete SEC coverage.
