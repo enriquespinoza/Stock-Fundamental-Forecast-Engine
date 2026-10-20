@@ -86,8 +86,9 @@ def audit_form4_history(ledger_path: Path, normalized_root: Path, *,
                 raw_path = _source_path(source_path, base_dir)
                 if raw_path.is_file():
                     raw_verified = _sha256(raw_path.read_bytes()) == declared_source_hash
-                else:
-                    raw_verified = False
+                # A deleted or separately stored raw cache is unavailable, not
+                # evidence that the hash is wrong. The declared hash is still
+                # checked against the normalized filing above.
             checks["source_file_verified"] = raw_verified
             for check, passed in checks.items():
                 if passed is False:
@@ -168,6 +169,8 @@ def audit_form4_history(ledger_path: Path, normalized_root: Path, *,
                       "integrity_check_counts": dict(Counter(
                           check for item in artifacts for check, passed in item["checks"].items()
                           if passed is True)),
+                      "source_file_unavailable_count": sum(
+                          item["checks"]["source_file_verified"] is None for item in artifacts),
                       "integrity_issues": integrity_issues},
         "batch": {"summary_path": str(batch_summary_path) if batch_summary_path else None,
                   "selected_count": (batch_summary or {}).get("selected_count"),

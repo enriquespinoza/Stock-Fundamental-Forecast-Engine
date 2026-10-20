@@ -71,9 +71,11 @@ class Form4AuditTests(unittest.TestCase):
                           "transactions": []}
             normalized_path = output / "normalized.json"
             normalized_path.write_text(json.dumps(normalized))
+            raw_path = root / "present-but-different.xml"
+            raw_path.write_bytes(b"not the declared raw content")
             manifest = {"command": "form4", "normalized_sha256": "f" * 64,
                         "ledger_sha256": hashlib.sha256(ledger.read_bytes()).hexdigest(),
-                        "source": {"path": str(root / "missing.xml"), "sha256": "0" * 64}}
+                        "source": {"path": str(raw_path), "sha256": "0" * 64}}
             (output / "manifest.json").write_text(json.dumps(manifest))
 
             report = audit_form4_history(ledger, root / "normalized", base_dir=root)

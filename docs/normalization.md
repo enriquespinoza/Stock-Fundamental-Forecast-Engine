@@ -71,7 +71,7 @@ python scripts/audit_form4_history.py \
   --batch-summary "PATH_TO_FORM4_BATCH_SUMMARY.json"
 ```
 
-The audit writes `data/processed/form4_history_audit.json`. It checks normalized-file hashes against their manifests, source hashes against each normalized filing and cached raw source when available, and ledger hashes against the selected ledger. Duplicate normalized runs are reported separately from unique accession coverage. A failed batch item whose ledger primary document is HTML is classified as `UNSUPPORTED_SOURCE_FORMAT`; the raw XML parser does not accept that legacy HTML representation. This audit covers ingestion and normalization only; it does not calculate returns or establish predictive value.
+The audit writes `data/processed/form4_history_audit.json`. It checks normalized-file hashes against their manifests, source hashes against each normalized filing and cached raw source when available, and ledger hashes against the selected ledger. A missing raw cache file is reported as unavailable; a present file with a mismatched digest is an integrity issue. Duplicate normalized runs are reported separately from unique accession coverage. A ledger item whose primary document is HTML is classified as `UNSUPPORTED_SOURCE_FORMAT`; the raw XML parser does not accept that legacy HTML representation. This audit covers ingestion and normalization only; it does not calculate returns or establish predictive value.
 
 ## Before correlation research
 
