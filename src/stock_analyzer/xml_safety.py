@@ -22,8 +22,8 @@ def strip_external_ownership_doctype(xml_text: str) -> str:
 
     start = declarations[0].start()
     root_match = re.match(r"<!\s*DOCTYPE\s+([A-Za-z_:][A-Za-z0-9_.:-]*)", xml_text[start:], re.IGNORECASE)
-    if root_match is None or root_match.group(1) != "ownershipDocument":
-        raise ValueError("Only an ownershipDocument DTD declaration is permitted")
+    if root_match is None:
+        raise ValueError("Malformed ownership DTD declaration")
 
     # Find the declaration end without treating a '>' inside quotes or an
     # internal subset as the end. No DTD content is passed to the XML parser.

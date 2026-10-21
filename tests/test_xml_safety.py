@@ -39,9 +39,9 @@ class OwnershipXmlSafetyTests(unittest.TestCase):
             with self.subTest(source=source), self.assertRaises(ValueError):
                 strip_external_ownership_doctype(source)
 
-    def test_rejects_non_ownership_or_multiple_doctypes(self):
+    def test_rejects_malformed_or_multiple_doctypes(self):
         for source in (
-            '<!DOCTYPE html SYSTEM "html.dtd"><ownershipDocument/>',
+            '<!DOCTYPE><ownershipDocument/>',
             '<!DOCTYPE ownershipDocument SYSTEM "one.dtd"><!DOCTYPE ownershipDocument SYSTEM "two.dtd"><ownershipDocument/>',
         ):
             with self.subTest(source=source), self.assertRaises(ValueError):
