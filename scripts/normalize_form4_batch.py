@@ -48,25 +48,31 @@ def main() -> int:
     existing = already_normalized(args.output_root)
 
     filings = []
+    unsupported_source_format = []
     seen = set()
     for row in ledger:
         accession = row.get("accession_number")
-        if (
-            row.get("form") in ("4", "4/A")
-            and accession
-            and accession not in existing
-            and accession not in seen
-            and row.get("primary_document")
-        ):
-            filings.append(row)
-            seen.add(accession)
+        document = row.get("primary_document") or ""
+        if row.get("form") not in ("4", "4/A") or not accession or accession in existing or accession in seen:
+            continue
+        seen.add(accession)
+        if not document.lower().endswith(".xml"):
+            unsupported_source_format.append({
+                "accession_number": accession,
+                "filing_date": row.get("filing_date"),
+                "form": row["form"],
+                "primary_document": document,
+                "status": "UNSUPPORTED_SOURCE_FORMAT",
+            })
+            continue
+        filings.append(row)
 
     filings.sort(
         key=lambda row: (row.get("filing_date", ""), row["accession_number"]),
         reverse=True,
     )
     selected = filings[:args.limit]
-    if not selected:
+    if not selected and not unsupported_source_format:
         print("No unprocessed Form 4 filings found.")
         return 0
 
@@ -116,6 +122,7 @@ def main() -> int:
         "selected_count": len(selected),
         "success_count": sum(item["return_code"] == 0 for item in results),
         "failure_count": sum(item["return_code"] != 0 for item in results),
+        "unsupported_source_format": unsupported_source_format,
         "results": results,
     }
     summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
