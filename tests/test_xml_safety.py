@@ -18,6 +18,13 @@ class OwnershipXmlSafetyTests(unittest.TestCase):
             '<ownershipDocument/>',
         )
 
+    def test_strips_non_entity_internal_subset(self):
+        source = '<!DOCTYPE ownershipDocument SYSTEM "ownership.dtd" [<!ELEMENT ownershipDocument ANY>]><ownershipDocument/>'
+        self.assertEqual(
+            strip_external_ownership_doctype(source),
+            '<ownershipDocument/>',
+        )
+
     def test_leaves_xml_without_doctype_unchanged(self):
         source = '<ownershipDocument/>'
         self.assertEqual(strip_external_ownership_doctype(source), source)
