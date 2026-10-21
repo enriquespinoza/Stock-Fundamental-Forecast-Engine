@@ -79,7 +79,7 @@ def download_prices(symbols: list[str], start_date: str, end_date: str,
     for symbol in symbols:
         history = yf.Ticker(symbol).history(
             start=start_date, end=end_date, interval="1d", auto_adjust=False,
-            actions=False, repair=False, raise_errors=True,
+            actions=False, repair=False,
         )
         if history.empty:
             raise ValueError(f"No daily price history returned for {symbol}")

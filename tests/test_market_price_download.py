@@ -82,6 +82,7 @@ class MarketPriceDownloadTests(unittest.TestCase):
         self.assertEqual(manifest["calendar"], "XNYS via exchange_calendars")
         self.assertEqual(manifest["csv"]["sha256"], csv_sha256)
         self.assertTrue(all(call[1]["auto_adjust"] is False for call in history_calls))
+        self.assertTrue(all("raise_errors" not in call[1] for call in history_calls))
         self.assertEqual([call[0] for call in history_calls], ["AAPL", "SPY"])
 
     def test_rejects_duplicate_symbols_before_network_access(self):
