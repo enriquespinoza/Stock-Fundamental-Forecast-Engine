@@ -69,6 +69,8 @@ See [normalization guide](docs/normalization.md) for commands, output fields, an
 
 See [market data and return labels](docs/market-data.md) for the download, label, and event-level dataset commands. Labels start from the issuer's first actual close strictly after Form 4 historical availability; the benchmark must match that same session, and a missing benchmark bar never shifts the issuer start. The default primary research window begins in 2010; earlier rows remain in the output with `primary_sample_eligible=false`. The first AAPL run validates data plumbing only.
 
+For expanding beyond AAPL, see [multi-issuer point-in-time research](docs/multi-issuer-research.md). The universe join verifies per-issuer financial snapshots and prevents facts from crossing company boundaries.
+
 ## Integration and research roadmap
 
 1. Finish the point-in-time data foundation: archive filing documents, enrich acceptance metadata, parse Form 4 XML, normalize accounting periods and security identities.
