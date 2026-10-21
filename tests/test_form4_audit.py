@@ -13,9 +13,11 @@ class Form4AuditTests(unittest.TestCase):
             root = Path(directory)
             ledger_path = root / "filing_ledger.jsonl"
             supported = {"accession_number": "0000000001-26-000001", "form": "4",
-                         "filing_date": "2026-10-01", "primary_document": "ownership.xml"}
+                         "issuer_cik": "0000000001", "filing_date": "2026-10-01",
+                         "primary_document": "ownership.xml"}
             legacy = {"accession_number": "0000000001-03-000002", "form": "4",
-                      "filing_date": "2003-03-21", "primary_document": "j8739_4.htm"}
+                      "issuer_cik": "0000000001", "filing_date": "2003-03-21",
+                      "primary_document": "j8739_4.htm"}
             ledger_raw = (json.dumps(supported) + "\n" + json.dumps(legacy) + "\n").encode()
             ledger_path.write_bytes(ledger_raw)
 
@@ -44,11 +46,24 @@ class Form4AuditTests(unittest.TestCase):
                         "source": {"path": str(raw_path), "sha256": hashlib.sha256(raw).hexdigest()}}
             (output / "manifest.json").write_text(json.dumps(manifest))
 
+            # A shared normalized root can include other issuers whose
+            # artifacts naturally reference a different filing ledger hash.
+            foreign = normalized_root / "form4" / "2026-10-02T00-00-00Z-2"
+            foreign.mkdir(parents=True)
+            foreign_raw = json.dumps({"filing": {"accession_number": "0000000002-26-000003",
+                                                  "issuer_cik": "0000000002", "raw_sha256": "0" * 64},
+                                      "transactions": []}).encode()
+            (foreign / "normalized.json").write_bytes(foreign_raw)
+            (foreign / "manifest.json").write_text(json.dumps({"command": "form4",
+                "normalized_sha256": "f" * 64, "ledger_sha256": "e" * 64,
+                "source": {"sha256": "d" * 64}}))
+
             report = audit_form4_history(ledger_path, normalized_root,
                                          batch_summary_path=summary_path, base_dir=root)
 
             self.assertEqual(report["ledger"]["form4_count"], 2)
             self.assertEqual(report["artifacts"]["unique_normalized_accessions"], 1)
+            self.assertEqual(report["artifacts"]["manifest_count"], 1)
             self.assertEqual(report["artifacts"]["missing_accessions"], [legacy["accession_number"]])
             self.assertEqual(report["artifacts"]["missing_supported_accessions"], [])
             self.assertEqual(report["artifacts"]["integrity_issues"], [])
@@ -63,11 +78,13 @@ class Form4AuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             ledger = root / "ledger.jsonl"
-            row = {"accession_number": "0000000001-26-000001", "form": "4", "primary_document": "a.xml"}
+            row = {"accession_number": "0000000001-26-000001", "form": "4",
+                   "issuer_cik": "0000000001", "primary_document": "a.xml"}
             ledger.write_text(json.dumps(row) + "\n")
             output = root / "normalized" / "form4" / "run"
             output.mkdir(parents=True)
-            normalized = {"filing": {"accession_number": row["accession_number"], "raw_sha256": "0" * 64},
+            normalized = {"filing": {"accession_number": row["accession_number"],
+                                     "issuer_cik": row["issuer_cik"], "raw_sha256": "0" * 64},
                           "transactions": []}
             normalized_path = output / "normalized.json"
             normalized_path.write_text(json.dumps(normalized))

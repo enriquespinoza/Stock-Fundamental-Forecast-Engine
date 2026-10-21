@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import re
 
+from .ledger import normalize_cik
+
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 FORM4_FORMS = {"4", "4/A"}
@@ -56,6 +58,7 @@ def audit_form4_history(ledger_path: Path, normalized_root: Path, *,
     ledger_by_accession = {row["accession_number"]: row for row in form4_rows}
     if len(ledger_by_accession) != len(form4_rows):
         raise ValueError("Ledger has duplicate Form 4 accession numbers")
+    ledger_issuers = {normalize_cik(row["issuer_cik"]) for row in form4_rows if row.get("issuer_cik")}
 
     artifacts = []
     integrity_issues = []
@@ -71,6 +74,12 @@ def audit_form4_history(ledger_path: Path, normalized_root: Path, *,
             normalized = json.loads(normalized_raw.decode("utf-8"))
             filing = normalized.get("filing", {})
             accession = filing.get("accession_number")
+            # normalized_root may contain multiple companies. Audit only
+            # artifacts for issuers represented by this ledger; otherwise a
+            # shared data directory creates false ledger-hash integrity errors.
+            artifact_cik = filing.get("issuer_cik")
+            if ledger_issuers and artifact_cik and normalize_cik(artifact_cik) not in ledger_issuers:
+                continue
             source = manifest.get("source", {})
             declared_source_hash = source.get("sha256")
             checks = {
