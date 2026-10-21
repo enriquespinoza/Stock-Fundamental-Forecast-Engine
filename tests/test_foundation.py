@@ -10,7 +10,7 @@ import sys
 from urllib.error import HTTPError
 
 from stock_analyzer.ledger import build_ledger, eligible_as_of, normalize_cik, parse_timestamp
-from stock_analyzer.sec_client import SecClient
+from stock_analyzer.sec_client import SecClient, UnsupportedSourceFormat
 
 
 def page(accepted="2026-10-09T20:30:00Z", accession="0000000001-26-000001", form="10-Q"):
@@ -142,6 +142,13 @@ class ClientTests(unittest.TestCase):
             SecClient("anonymous", self.directory)
         with self.assertRaises(ValueError):
             self.client(lambda request, timeout: BytesIO(b'{}')).fetch_json("https://example.com/data")
+
+    def test_html_viewer_is_reported_as_unsupported_source(self):
+        url = "https://www.sec.gov/Archives/edgar/data/1/000000000126000001/xslF345X05/ownership.xml"
+        html = b'<!DOCTYPE html><html><body>SEC Form 4</body></html>'
+        client = self.client(lambda request, timeout: BytesIO(html))
+        with self.assertRaisesRegex(UnsupportedSourceFormat, "UNSUPPORTED_SOURCE_FORMAT"):
+            client.fetch_xml(url)
 
     def test_retry_exhaustion_and_invalid_json(self):
         calls = []

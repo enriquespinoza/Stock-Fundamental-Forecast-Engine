@@ -8,6 +8,43 @@ from unittest.mock import patch
 
 
 class Form4BatchTests(unittest.TestCase):
+    def test_html_viewer_response_is_excluded_from_later_batches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ledger_path = root / "filing_ledger.jsonl"
+            row = {"accession_number": "0000000001-24-000001", "form": "4",
+                   "filing_date": "2024-02-26", "primary_document": "xslF345X05/ownership.xml"}
+            ledger_path.write_text(json.dumps(row) + chr(10), encoding="utf-8")
+            script = Path(__file__).resolve().parents[1] / "scripts" / "normalize_form4_batch.py"
+            common = ["--ledger", str(ledger_path), "--limit", "10",
+                      "--output-root", str(root / "normalized"),
+                      "--summary-root", str(root / "summaries"),
+                      "--user-agent", "Research Tool contact@example.com"]
+            failed = type("Completed", (), {
+                "stdout": "", "stderr": "UNSUPPORTED_SOURCE_FORMAT: SEC returned HTML viewer",
+                "returncode": 1,
+            })()
+            with patch.object(sys, "argv", [str(script), *common]):
+                with patch("subprocess.run", return_value=failed) as run:
+                    with patch("time.sleep"):
+                        with self.assertRaises(SystemExit) as exit_result:
+                            runpy.run_path(str(script), run_name="__main__")
+                        self.assertEqual(exit_result.exception.code, 0)
+            run.assert_called_once()
+
+            first_summary_path = next((root / "summaries").glob("*.json"))
+            first_summary = json.loads(first_summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(first_summary["success_count"], 0)
+            self.assertEqual(first_summary["failure_count"], 0)
+            self.assertEqual(first_summary["unsupported_count"], 1)
+
+            with patch.object(sys, "argv", [str(script), *common]):
+                with patch("subprocess.run") as retry:
+                    with self.assertRaises(SystemExit) as exit_result:
+                        runpy.run_path(str(script), run_name="__main__")
+                    self.assertEqual(exit_result.exception.code, 0)
+            retry.assert_not_called()
+
     def test_unsupported_legacy_html_is_reported_without_retry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

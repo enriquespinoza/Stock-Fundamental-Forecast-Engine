@@ -74,6 +74,41 @@ class Form4AuditTests(unittest.TestCase):
             self.assertEqual(report["filings"]["owner_role_counts"], {"officer": 1})
             self.assertEqual(report["filings"]["candidate_counts_by_plan"], {"sale|10b5-1=True": 1})
 
+    def test_xml_viewer_response_is_unsupported_not_missing_supported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ledger_path = root / "ledger.jsonl"
+            row = {"accession_number": "0000000001-24-000001", "form": "4",
+                   "issuer_cik": "0000000001", "filing_date": "2024-02-26",
+                   "primary_document": "xslF345X05/ownership.xml"}
+            ledger_path.write_text(json.dumps(row) + chr(10), encoding="utf-8")
+            summary_path = root / "batch.json"
+            summary_path.write_text(json.dumps({
+                "selected_count": 1,
+                "success_count": 0,
+                "failure_count": 0,
+                "unsupported_source_format": [{
+                    "accession_number": row["accession_number"],
+                    "primary_document": row["primary_document"],
+                    "status": "UNSUPPORTED_SOURCE_FORMAT",
+                    "reason": "SEC returned an HTML viewer",
+                    "detected_response": True,
+                }],
+                "results": [],
+            }), encoding="utf-8")
+
+            report = audit_form4_history(ledger_path, root / "normalized",
+                                         batch_summary_path=summary_path, base_dir=root)
+            self.assertEqual(report["artifacts"]["missing_supported_accessions"], [])
+            self.assertEqual(report["batch"]["unsupported_source_format"], [{
+                "accession_number": row["accession_number"],
+                "filing_date": row["filing_date"],
+                "primary_document": row["primary_document"],
+                "status": "UNSUPPORTED_SOURCE_FORMAT",
+                "batch_failed": False,
+                "reason": "SEC returned an HTML viewer",
+            }])
+
     def test_detects_modified_normalized_output(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

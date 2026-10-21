@@ -131,14 +131,38 @@ def audit_form4_history(ledger_path: Path, normalized_root: Path, *,
             if result.get("return_code", 0) == 0:
                 continue
             failed_batch_accessions.add(result.get("accession_number"))
+    unsupported_by_accession = {}
     for accession, filing in ledger_by_accession.items():
         document = filing.get("primary_document") or ""
         if Path(document).suffix.lower() in {".htm", ".html"}:
-            unsupported.append({"accession_number": accession,
-                                "filing_date": filing.get("filing_date"),
-                                "primary_document": document,
-                                "status": "UNSUPPORTED_SOURCE_FORMAT",
-                                "batch_failed": accession in failed_batch_accessions})
+            unsupported_by_accession[accession] = {
+                "accession_number": accession,
+                "filing_date": filing.get("filing_date"),
+                "primary_document": document,
+                "status": "UNSUPPORTED_SOURCE_FORMAT",
+                "batch_failed": accession in failed_batch_accessions,
+            }
+
+    for item in (batch_summary or {}).get("unsupported_source_format", []):
+        accession = item.get("accession_number")
+        filing = ledger_by_accession.get(accession)
+        if not filing:
+            continue
+        unsupported_by_accession[accession] = {
+            "accession_number": accession,
+            "filing_date": filing.get("filing_date"),
+            "primary_document": filing.get("primary_document"),
+            "status": "UNSUPPORTED_SOURCE_FORMAT",
+            "batch_failed": accession in failed_batch_accessions,
+            **({"reason": item["reason"]} if item.get("reason") else {}),
+        }
+
+    unsupported = [unsupported_by_accession[key] for key in sorted(unsupported_by_accession)]
+    reported_unsupported = set(unsupported_by_accession)
+    missing_supported_accessions = sorted(
+        accession for accession in missing_supported_accessions
+        if accession not in reported_unsupported
+    )
 
     code_counts, class_counts, role_counts = Counter(), Counter(), Counter()
     plan_counts, amendment_counts = Counter(), Counter()

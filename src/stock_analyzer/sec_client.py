@@ -16,6 +16,10 @@ from .ledger import utc_text
 from .xml_safety import strip_external_ownership_doctype
 
 
+class UnsupportedSourceFormat(ValueError):
+    """The SEC URL returned a viewer document instead of raw ownership XML."""
+
+
 @dataclass(frozen=True)
 class Snapshot:
     payload: dict | bytes
@@ -82,6 +86,10 @@ class SecClient:
         if len(raw) > 10_000_000:
             raise ValueError("Ownership XML exceeds size limit")
         decoded = raw.decode("utf-8-sig")
+        if re.match(r"\s*(?:<!DOCTYPE\s+html\b|<html\b)", decoded, flags=re.IGNORECASE):
+            raise UnsupportedSourceFormat(
+                "UNSUPPORTED_SOURCE_FORMAT: SEC returned an HTML viewer instead of raw ownership XML"
+            )
         decoded = strip_external_ownership_doctype(decoded)
         root = ET.fromstring(decoded)
         if root.tag.rsplit("}", 1)[-1] != "ownershipDocument":

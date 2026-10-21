@@ -47,13 +47,28 @@ def main() -> int:
     ]
     existing = already_normalized(args.output_root)
 
+    # Keep response-format exclusions across runs so viewer URLs are not fetched repeatedly.
+    prior_unsupported = {}
+    for prior_path in args.summary_root.glob("form4-batch-*.json"):
+        try:
+            prior = json.loads(prior_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if prior.get("ledger_path") != str(args.ledger):
+            continue
+        for item in prior.get("unsupported_source_format", []):
+            if item.get("detected_response") and item.get("accession_number"):
+                prior_unsupported[item["accession_number"]] = item
+
     filings = []
-    unsupported_source_format = []
+    unsupported_source_format = list(prior_unsupported.values())
+    known_unsupported = set(prior_unsupported)
     seen = set()
     for row in ledger:
         accession = row.get("accession_number")
         document = row.get("primary_document") or ""
-        if row.get("form") not in ("4", "4/A") or not accession or accession in existing or accession in seen:
+        if (row.get("form") not in ("4", "4/A") or not accession
+                or accession in existing or accession in seen or accession in known_unsupported):
             continue
         seen.add(accession)
         if not document.lower().endswith(".xml"):
@@ -99,6 +114,18 @@ def main() -> int:
         if stderr:
             print(stderr, file=sys.stderr)
 
+        if "UNSUPPORTED_SOURCE_FORMAT:" in stderr:
+            unsupported_source_format.append({
+                "accession_number": accession,
+                "filing_date": filing.get("filing_date"),
+                "form": filing["form"],
+                "primary_document": filing.get("primary_document"),
+                "status": "UNSUPPORTED_SOURCE_FORMAT",
+                "reason": "SEC returned an HTML viewer instead of raw ownership XML",
+                "detected_response": True,
+            })
+            continue
+
         results.append({
             "accession_number": accession,
             "filing_date": filing.get("filing_date"),
@@ -122,6 +149,7 @@ def main() -> int:
         "selected_count": len(selected),
         "success_count": sum(item["return_code"] == 0 for item in results),
         "failure_count": sum(item["return_code"] != 0 for item in results),
+        "unsupported_count": len(unsupported_source_format),
         "unsupported_source_format": unsupported_source_format,
         "results": results,
     }
