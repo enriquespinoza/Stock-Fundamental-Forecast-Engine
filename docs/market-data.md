@@ -76,6 +76,28 @@ For example, `0.025` means 2.5% return, and an excess return of `0.01` means the
 
 The output is a separate, immutable run under `data/processed/form4_return_labels/`, with a CSV, summary, and manifest. Events before 2010 remain represented but have `primary_sample_eligible=false`; 2009 can be examined as a sparse boundary year. Incomplete future horizons have null labels and an explicit status. Missing prices are never filled. Join labels back to the long-form financial feature file using `event_id`; do not join on ticker and date alone.
 
+## Assemble an event-level research table
+
+After generating both the point-in-time financial join and the return labels,
+combine them into one row per insider transaction. The assembler verifies that
+both outputs reference the exact same event CSV hash, all three datasets have
+matching event IDs, financial facts were available by the event timestamp, and
+the input manifests and CSV hashes agree.
+
+```bash
+python scripts/build_event_research_dataset.py \
+  --events "data/processed/form4_events/EVENT_RUN/candidate_transactions.csv" \
+  --financial-features "data/processed/form4_financial_joins/FINANCIAL_RUN/event_financial_features.csv" \
+  --labels "data/processed/form4_return_labels/LABEL_RUN/event_return_labels.csv"
+```
+
+Replace the run-directory placeholders with the exact runs you built. The
+output under `data/processed/form4_research_datasets/` retains each original
+event field, metric-specific financial values and fact provenance, and label
+status/returns. It does not calculate correlations or train forecasts. Filter
+to `label_primary_sample_eligible=true` and the horizon-specific status `OK`
+only when evaluating that horizon; keep the full output as the auditable base.
+
 ## Interpretation limits
 
 These are outcome labels for historical research, not forecasts or recommendations. Labels are available only after their full horizon has elapsed. At each eventual training or forecast cutoff, rows with outcomes not yet known must be excluded. The event features still must be restricted to information available by the Form 4 public-availability timestamp. The first AAPL run checks plumbing and timestamp behavior; it cannot establish a predictive relationship. Broader, point-in-time security coverage and chronological out-of-sample testing are required before any general claim.

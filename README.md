@@ -15,6 +15,7 @@ Research engine for financial-statement, insider-transaction, market, and macro 
 - Offline tests for availability, amendments, duplicates, malformed inputs, cache integrity, throttling, HTTP failures, and normalization commands.
 - Point-in-time Form 4-to-financial joins with period provenance and future-fact exclusion.
 - A separate market-price label stage for 1-, 5-, and 20-session issuer and SPY returns. It uses actual close timestamps and immutable input hashes; it does not train a model.
+- A manifest-checked event-level research table that joins point-in-time financial facts and forward-return labels by event ID.
 
 ## Setup and tests
 
@@ -66,7 +67,7 @@ See [normalization guide](docs/normalization.md) for commands, output fields, an
 
 ## Build forward-return labels
 
-See [market data and return labels](docs/market-data.md) for the required price CSV columns and a run command. Labels start from the issuer's first actual close strictly after Form 4 historical availability; the benchmark must match that same session, and a missing benchmark bar never shifts the issuer start. The default primary research window begins in 2010; earlier rows remain in the output with `primary_sample_eligible=false`. The first AAPL run validates data plumbing only.
+See [market data and return labels](docs/market-data.md) for the download, label, and event-level dataset commands. Labels start from the issuer's first actual close strictly after Form 4 historical availability; the benchmark must match that same session, and a missing benchmark bar never shifts the issuer start. The default primary research window begins in 2010; earlier rows remain in the output with `primary_sample_eligible=false`. The first AAPL run validates data plumbing only.
 
 ## Integration and research roadmap
 
