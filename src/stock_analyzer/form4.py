@@ -7,6 +7,7 @@ import re
 from xml.etree import ElementTree as ET
 
 from .ledger import normalize_cik
+from .xml_safety import strip_external_ownership_doctype
 
 CODE_CLASSES = {"P": "purchase", "S": "sale", "A": "award_or_grant",
                 "M": "exercise_or_conversion", "F": "tax_or_exercise_payment",
@@ -48,10 +49,9 @@ def parse_form4(raw: bytes, filing: dict) -> dict:
     """Filing context is required: XML transaction dates do not establish availability."""
     if len(raw) > 10_000_000:
         raise ValueError("Ownership XML exceeds the 10 MB parser limit")
-    # Reject alternate encodings and DTD/entity declarations before parsing.
+    # Reject alternate encodings; strip only an external DTD without resolving it.
     decoded = raw.decode("utf-8-sig")
-    if re.search(r"<!\s*(DOCTYPE|ENTITY)\b", decoded, flags=re.IGNORECASE):
-        raise ValueError("DTD and entity declarations are not permitted")
+    decoded = strip_external_ownership_doctype(decoded)
     root = ET.fromstring(decoded)
     for node in root.iter():
         node.tag = node.tag.rsplit("}", 1)[-1]

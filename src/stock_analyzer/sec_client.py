@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
 
 from .ledger import utc_text
+from .xml_safety import strip_external_ownership_doctype
 
 
 @dataclass(frozen=True)
@@ -81,8 +82,7 @@ class SecClient:
         if len(raw) > 10_000_000:
             raise ValueError("Ownership XML exceeds size limit")
         decoded = raw.decode("utf-8-sig")
-        if re.search(r"<!\s*(DOCTYPE|ENTITY)\b", decoded, flags=re.IGNORECASE):
-            raise ValueError("DTD and entity declarations are not permitted")
+        decoded = strip_external_ownership_doctype(decoded)
         root = ET.fromstring(decoded)
         if root.tag.rsplit("}", 1)[-1] != "ownershipDocument":
             raise ValueError("Expected raw ownership XML")
