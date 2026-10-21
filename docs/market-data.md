@@ -1,8 +1,38 @@
 # Market data and forward-return labels
 
+## Download AAPL and SPY prices
+
+Install the optional market-data tools in the project virtual environment:
+
+```bash
+python -m pip install -e ".[market-data]"
+```
+
+Then create an immutable daily snapshot from 2010 through the latest completed
+session:
+
+```bash
+python scripts/download_market_prices.py
+```
+
+The script downloads AAPL and SPY sequentially from Yahoo Finance using
+`auto_adjust=False`, so `Adj Close` is explicit. It matches daily bars to the
+XNYS exchange schedule to record UTC close times, including early closes. The
+CSV and a manifest are written to `data/raw/market/`; each run uses a new
+timestamped filename, and the manifest records package versions, acquisition
+time, row count, and the CSV SHA-256. Do not edit or replace a snapshot after
+the manifest is created. To choose another range or output directory, use
+`--start-date`, `--end-date` (exclusive), and `--output-root`.
+
+Yahoo Finance is an initial research source accessed through the community
+`yfinance` package. Preserve the provider and adjustment methodology in every
+run; do not mix its prices with another source in one snapshot.
+
 ## Price input contract
 
-The return-label command consumes a daily price CSV. It does not download market data. The file must have exactly these columns:
+The return-label command consumes the daily price CSV produced above (or another
+CSV meeting this contract). It does not download market data. The file must
+have exactly these columns:
 
 ```csv
 symbol,session_date,close_at_utc,adjusted_close
@@ -19,18 +49,22 @@ The command rejects duplicate symbol/session rows, invalid timestamps, and nonpo
 
 ## Run labels
 
-Use the candidate event file produced by `scripts/build_form4_events.py` and the raw price CSV:
+Use the candidate event file produced by `scripts/build_form4_events.py` and
+the raw price CSV. Copy the exact path and `Observed at UTC` value printed by
+the downloader:
 
 ```bash
 python scripts/build_forward_return_labels.py \
   --events "data/processed/form4_events/EVENT_RUN/candidate_transactions.csv" \
-  --prices "data/raw/market/aapl_spy_daily.csv" \
-  --price-source "PROVIDER, product, download/version details" \
-  --price-basis "provider adjusted close; split and cash-distribution adjusted" \
-  --prices-observed-at "2026-10-21T14:00:00Z"
+  --prices "data/raw/market/CSV_PATH_FROM_DOWNLOADER.csv" \
+  --price-source "Yahoo Finance via yfinance; see snapshot manifest" \
+  --price-basis "Yahoo Adj Close; auto_adjust=False; see snapshot manifest" \
+  --prices-observed-at "OBSERVED_AT_UTC_FROM_DOWNLOADER"
 ```
 
-Replace `EVENT_RUN`, the provider description, and the observation timestamp with the actual values. `--prices-observed-at` is when this exact price snapshot was acquired, not the date of the latest bar.
+Replace `EVENT_RUN`, the CSV path, and observation timestamp with the actual
+values. `--prices-observed-at` is when this exact price snapshot was acquired,
+not the date of the latest bar.
 
 The labeler selects the first issuer session close whose actual UTC close timestamp is strictly later than `historical_available_after_utc`. The benchmark close must exist for that same starting session and also be strictly after event availability. For each horizon, it advances 1, 5, or 20 issuer trading rows and requires an SPY row on the resulting session date. It calculates:
 

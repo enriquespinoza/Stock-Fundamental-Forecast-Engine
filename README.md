@@ -31,6 +31,8 @@ python -m unittest discover -s tests -v
 
 The implementation uses the Python standard library. The editable installation requires setuptools as its build backend.
 
+To download market prices, install the optional provider and exchange-calendar packages with `python -m pip install -e ".[market-data]"`.
+
 ## Ingest one issuer
 
 Set an identifying SEC User-Agent with your real contact email; do not use the example address below in a live request.
@@ -56,7 +58,7 @@ The ledger uses acceptance metadata plus a declared processing delay as a conser
 
 Later comparative disclosures and restatements must not overwrite information available at earlier decision dates. The normalization command retains fact versions and selects facts only after their ledger availability cutoff. It does not yet construct a market-session feature panel. Missing acceptance times remain unknown; historical pages without those times need filing-header enrichment before use.
 
-Individual raw Form 4 XML can now be downloaded and cached through the normalization command. Bulk document discovery, security/ticker history, a market-price acquisition adapter, and models are **not implemented**. The label builder consumes a supplied daily price CSV with explicit actual close timestamps; the user must record the provider's adjustment basis accurately. Financial mappings are limited to ten US-GAAP metrics; custom tags, IFRS, segments, and industry-specific accounting remain uncovered. Refresh observations do not reconstruct what our system downloaded before it existed.
+Individual raw Form 4 XML can now be downloaded and cached through the normalization command. Bulk document discovery, long-term security/ticker history, and models are **not implemented**. The market-price downloader creates a timestamped AAPL/SPY CSV and manifest; it uses Yahoo adjusted closes and XNYS scheduled closes. Financial mappings are limited to ten US-GAAP metrics; custom tags, IFRS, segments, and industry-specific accounting remain uncovered. Refresh observations do not reconstruct what our system downloaded before it existed.
 
 ## Normalize financial facts and Form 4
 
