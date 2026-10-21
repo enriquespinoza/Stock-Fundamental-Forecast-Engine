@@ -11,7 +11,7 @@ from pathlib import Path
 from stock_analyzer.financials import normalize_companyfacts, select_as_of, aligned_cash_flow_features
 from stock_analyzer.form4 import parse_form4
 from stock_analyzer.ledger import parse_timestamp, utc_text
-from stock_analyzer.sec_client import SecClient
+from stock_analyzer.sec_client import SecClient, ownership_archive_url
 
 
 def main():
@@ -55,8 +55,8 @@ def main():
             raise ValueError("Exactly one matching Form 4 ledger record is required")
         filing = dict(matches[0])
         if args.download:
-            document = filing["primary_document"].split("/")[-1]
-            url = f"https://www.sec.gov/Archives/edgar/data/{int(filing['issuer_cik'])}/{args.accession.replace('-', '')}/{document}"
+            url = ownership_archive_url(filing["issuer_cik"], args.accession,
+                                        filing["primary_document"])
             snapshot = SecClient(args.user_agent, args.cache_dir).fetch_xml(url, refresh=args.refresh)
             raw, observed = snapshot.payload, snapshot.observed_at_utc
             source = {"url": url, "path": str(snapshot.path), "sha256": snapshot.sha256}

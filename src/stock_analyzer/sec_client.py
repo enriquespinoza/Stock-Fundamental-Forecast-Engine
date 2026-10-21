@@ -25,6 +25,22 @@ class Snapshot:
     from_cache: bool
 
 
+def ownership_archive_url(issuer_cik: str, accession_number: str, primary_document: str) -> str:
+    """Build a safe SEC archive URL while preserving nested document paths."""
+    cik = str(issuer_cik).strip()
+    accession = str(accession_number).strip()
+    document = str(primary_document).replace("\\", "/").strip("/")
+    if not re.fullmatch(r"[0-9]{1,10}", cik) or int(cik) == 0:
+        raise ValueError("Invalid issuer CIK for ownership archive URL")
+    if not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession):
+        raise ValueError("Invalid accession for ownership archive URL")
+    if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\.xml",
+                        document, flags=re.IGNORECASE):
+        raise ValueError("Primary document must be a safe XML archive path")
+    return (f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/"
+            f"{accession.replace('-', '')}/{document}")
+
+
 class SecClient:
     """One sequential client; rate budget must be shared across external processes."""
 
@@ -76,7 +92,8 @@ class SecClient:
         parsed = urlsplit(url)
         valid_host = parsed.netloc == "data.sec.gov" if kind == "json" else (
             parsed.netloc == "www.sec.gov" and re.fullmatch(
-                r"/Archives/edgar/data/[0-9]+/[0-9]{18}/[A-Za-z0-9_.-]+\.xml", parsed.path)
+                r"/Archives/edgar/data/[0-9]+/[0-9]{18}/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)*"
+                r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.xml", parsed.path, flags=re.IGNORECASE)
         )
         if parsed.scheme != "https" or not valid_host or parsed.query or parsed.fragment:
             raise ValueError("URL must be a permitted SEC data or raw ownership archive URL")

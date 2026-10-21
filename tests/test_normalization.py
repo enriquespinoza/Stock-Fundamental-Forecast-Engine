@@ -11,7 +11,7 @@ from unittest.mock import patch
 from stock_analyzer.financials import normalize_companyfacts, select_as_of, aligned_cash_flow_features
 from stock_analyzer.form4 import parse_form4
 from stock_analyzer.ledger import build_ledger
-from stock_analyzer.sec_client import SecClient
+from stock_analyzer.sec_client import SecClient, ownership_archive_url
 
 
 def filing(form="4", amendment=False):
@@ -119,13 +119,19 @@ class OwnershipTests(unittest.TestCase):
     def test_safe_viewer_path_and_archive_xml_cache(self):
         context = filing()
         self.assertIn("xslF345X05/ownership.xml", context["source_url"])
+        self.assertEqual(ownership_archive_url("0000789019", "0000950170-24-020392",
+                                               "xslF345X05/ownership.xml"),
+                         "https://www.sec.gov/Archives/edgar/data/789019/000095017024020392/xslF345X05/ownership.xml")
+        for path in ("../ownership.xml", "xsl/../../ownership.xml", "ownership.htm"):
+            with self.assertRaises(ValueError):
+                ownership_archive_url("0000789019", "0000950170-24-020392", path)
         with tempfile.TemporaryDirectory() as directory:
             calls = []
             def opener(request, timeout):
                 calls.append(request)
                 return BytesIO(xml())
             client = SecClient("Research test@example.com", Path(directory), opener=opener)
-            url = "https://www.sec.gov/Archives/edgar/data/1/000000000126000001/ownership.xml"
+            url = "https://www.sec.gov/Archives/edgar/data/1/000000000126000001/xslF345X05/ownership.xml"
             first = client.fetch_xml(url)
             self.assertEqual(first.path.suffix, ".xml")
             self.assertTrue(client.fetch_xml(url).from_cache)
