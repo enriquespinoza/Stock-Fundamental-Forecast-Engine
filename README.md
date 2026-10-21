@@ -2,7 +2,7 @@
 
 Research engine for financial-statement, insider-transaction, market, and macro features intended to estimate future stock returns. Works alongside TMF Predictive Analytics and informs the portfolio optimizer before the execution engine acts.
 
-**Status: Phase 1 ingestion and normalization. No forecasts, trading recommendations, or established predictive edge yet.**
+**Status: SEC normalization, point-in-time financial joins, and a forward-return label builder. No forecasts, trading recommendations, or established predictive edge yet.**
 
 ## Implemented
 
@@ -13,6 +13,8 @@ Research engine for financial-statement, insider-transaction, market, and macro 
 - Version-preserving filing ledger: acceptance, observation, report period, amendment flag, and source URL.
 - Separate historical and live availability cutoffs; unknown acceptance timestamps are excluded from as-of queries.
 - Offline tests for availability, amendments, duplicates, malformed inputs, cache integrity, throttling, HTTP failures, and normalization commands.
+- Point-in-time Form 4-to-financial joins with period provenance and future-fact exclusion.
+- A separate market-price label stage for 1-, 5-, and 20-session issuer and SPY returns. It uses actual close timestamps and immutable input hashes; it does not train a model.
 
 ## Setup and tests
 
@@ -54,16 +56,20 @@ The ledger uses acceptance metadata plus a declared processing delay as a conser
 
 Later comparative disclosures and restatements must not overwrite information available at earlier decision dates. The normalization command retains fact versions and selects facts only after their ledger availability cutoff. It does not yet construct a market-session feature panel. Missing acceptance times remain unknown; historical pages without those times need filing-header enrichment before use.
 
-Individual raw Form 4 XML can now be downloaded and cached through the normalization command. Bulk document discovery, security/ticker history, session calendars, total-return labels, and models are **not implemented**. Financial mappings are limited to ten US-GAAP metrics; custom tags, IFRS, segments, and industry-specific accounting remain uncovered. Refresh observations do not reconstruct what our system downloaded before it existed.
+Individual raw Form 4 XML can now be downloaded and cached through the normalization command. Bulk document discovery, security/ticker history, a market-price acquisition adapter, and models are **not implemented**. The label builder consumes a supplied daily price CSV with explicit actual close timestamps; the user must record the provider's adjustment basis accurately. Financial mappings are limited to ten US-GAAP metrics; custom tags, IFRS, segments, and industry-specific accounting remain uncovered. Refresh observations do not reconstruct what our system downloaded before it existed.
 
 ## Normalize financial facts and Form 4
 
 See [normalization guide](docs/normalization.md) for commands, output fields, and limitations. Start with an ingestion run's ledger and the Company Facts raw path listed in its manifest. The normalization command creates a new run directory containing `normalized.json` and `manifest.json`.
 
+## Build forward-return labels
+
+See [market data and return labels](docs/market-data.md) for the required price CSV columns and a run command. Labels start from the issuer's first actual close strictly after Form 4 historical availability; the benchmark must match that same session, and a missing benchmark bar never shifts the issuer start. The default primary research window begins in 2010; earlier rows remain in the output with `primary_sample_eligible=false`. The first AAPL run validates data plumbing only.
+
 ## Integration and research roadmap
 
 1. Finish the point-in-time data foundation: archive filing documents, enrich acceptance metadata, parse Form 4 XML, normalize accounting periods and security identities.
-2. Join features to verified 21- and 63-session total-return labels; assess correlations, stability, and coverage.
+2. Validate the 1-, 5-, and 20-session label pipeline, then broaden price and SEC coverage before creating the architecture's 21- and 63-session research targets. Assess correlations, stability, and coverage only after those checks.
 3. Compare price-only baselines against SEC-feature models in chronological walk-forward tests.
 4. Publish versioned forecasts, calibrated uncertainty, and cited evidence to the orchestrator. Changed forecasts can trigger re-optimization; the analyzer never places orders.
 5. Run dry integration with SimulationBroker, then prospective paper validation over completed forecast horizons before promotion.
