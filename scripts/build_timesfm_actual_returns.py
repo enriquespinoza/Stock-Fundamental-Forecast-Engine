@@ -29,7 +29,8 @@ def main() -> int:
     print(f"Matched return rows: {result['summary']['event_count']}")
     print(f"Primary sample events: {result['summary']['primary_sample_event_count']}")
     print(f"Horizon status counts: {result['summary']['horizon_status_counts']}")
-    print(f"Primary sample forecast metrics: {result['summary']['primary_sample_metrics']}")
+    print(f"Event-weighted primary metrics: {result['summary']['primary_sample_metrics_event_weighted']}")
+    print(f"Unique-origin primary metrics: {result['summary']['primary_sample_metrics_unique_origins']}")
     print(f"Matched actual returns -> {result['output_dir']}")
     print("Research only; no forecasts are sent to portfolio or execution systems.")
     return 0
