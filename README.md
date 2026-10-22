@@ -17,6 +17,7 @@ Research engine for SEC filing, financial-statement, market, and macro features 
 - A separate market-price label stage for 1-, 5-, and 20-session issuer and SPY returns. It uses actual close timestamps and immutable input hashes; it does not train a model.
 - A manifest-checked event-level research table that joins point-in-time financial facts and forward-return labels by event ID.
 - An optional TimesFM 2.5 research feature builder with strict pre-event price cutoffs and a manifest-checked event-ID join; output is isolated from portfolio and execution systems.
+- An initial 8-K/8-K/A item indexer for archived primary documents. It preserves release-time provenance and hashes, rejects non-filing viewer pages, and records item codes without claiming event meaning.
 
 ## Setup and tests
 
@@ -61,6 +62,10 @@ The ledger uses acceptance metadata plus a declared processing delay as a conser
 Later comparative disclosures and restatements must not overwrite information available at earlier decision dates. The normalization command retains fact versions and selects facts only after their ledger availability cutoff. Missing acceptance times remain unknown; historical pages without those times need filing-header enrichment before use.
 
 The current 32-issuer pilot was selected from a 2026 S&P 500 snapshot. Use it to validate ingestion, parsing, and prospective capture. It is not a historical point-in-time universe and cannot support broad historical correlation or generalization claims. See [universe expansion and survivorship controls](docs/universe-expansion.md).
+
+## Index an archived 8-K
+
+See [8-K item indexing](docs/8k-item-indexing.md) for the single-filing command, required source observation timestamp, outputs, and parser limits. The indexer does not fetch filings or produce forecasts.
 
 ## Build forward-return labels
 
