@@ -49,6 +49,26 @@ manifest documents the point-in-time rule, price snapshot observation time,
 model ID/revision, horizons, caveats, and the output hash. The code checks the
 source row counts and SHA-256 values before inference.
 
+## Join to the event research dataset
+
+Build the financial join, return labels, and base research dataset from the same
+candidate event CSV used for the TimesFM run. Their manifests must all point to
+that exact event CSV; otherwise the tools will reject the join.
+
+After rebuilding those inputs, add the TimesFM features by event ID:
+
+```bash
+python scripts/join_timesfm_research_dataset.py \
+  --research-dataset "data/processed/form4_research_datasets/BASE_RUN/event_research_dataset.csv" \
+  --timesfm-features "data/processed/timesfm_features/TIMESFM_RUN/event_timesfm_features.csv"
+```
+
+The output under `data/processed/form4_timesfm_research/` retains the base
+research columns and appends `timesfm_*` fields. It checks hashes, row counts,
+event IDs, issuer identities, and event timestamps. Skipped forecasts remain
+rows with an explicit status. The manifest preserves both source manifests and
+states that forecast origins differ from the existing return-label origins.
+
 ## Research limitations
 
 The time cutoff prevents post-event rows in the archived price CSV from entering
