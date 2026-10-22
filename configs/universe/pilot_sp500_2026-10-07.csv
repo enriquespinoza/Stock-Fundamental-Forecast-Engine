@@ -1,0 +1,33 @@
+symbol,provider_symbol,issuer_cik,company_name,sector,industry,source
+AAPL,AAPL,0000320193,"Apple Inc.","Information Technology","Technology Hardware, Storage & Peripherals",datasets_sp500_wikipedia_mirror
+ABBV,ABBV,0001551152,AbbVie,Health Care,"Biotechnology",datasets_sp500_wikipedia_mirror
+ABT,ABT,0000001800,Abbott Laboratories,Health Care,"Health Care Equipment",datasets_sp500_wikipedia_mirror
+AMZN,AMZN,0001018724,"Amazon","Consumer Discretionary","Broadline Retail",datasets_sp500_wikipedia_mirror
+CAT,CAT,0000018230,"Caterpillar Inc.","Industrials","Construction Machinery & Heavy Transportation Equipment",datasets_sp500_wikipedia_mirror
+COP,COP,0001163165,"ConocoPhillips","Energy","Oil & Gas Exploration & Production",datasets_sp500_wikipedia_mirror
+COST,COST,0000909832,Costco,"Consumer Staples","Consumer Staples Merchandise Retail",datasets_sp500_wikipedia_mirror
+CVX,CVX,0000093410,"Chevron Corporation","Energy","Integrated Oil & Gas",datasets_sp500_wikipedia_mirror
+DUK,DUK,0001326160,"Duke Energy",Utilities,Electric Utilities,datasets_sp500_wikipedia_mirror
+GE,GE,0000040545,GE Aerospace,"Industrials","Aerospace & Defense",datasets_sp500_wikipedia_mirror
+GOOGL,GOOGL,0001652044,"Alphabet Inc. (Class A)","Communication Services","Interactive Media & Services",datasets_sp500_wikipedia_mirror
+HD,HD,0000354950,Home Depot (The),"Consumer Discretionary","Home Improvement Retail",datasets_sp500_wikipedia_mirror
+JNJ,JNJ,0000200406,"Johnson & Johnson",Health Care,Pharmaceuticals,datasets_sp500_wikipedia_mirror
+KO,KO,0000021344,"Coca-Cola Company (The)","Consumer Staples","Soft Drinks & Non-alcoholic Beverages",datasets_sp500_wikipedia_mirror
+LIN,LIN,0001707925,"Linde plc",Materials,"Industrial Gases",datasets_sp500_wikipedia_mirror
+LLY,LLY,0000059478,Lilly (Eli),Health Care,Pharmaceuticals,datasets_sp500_wikipedia_mirror
+MCD,MCD,0000063908,"McDonald's","Consumer Discretionary","Restaurants",datasets_sp500_wikipedia_mirror
+META,META,0001326801,Meta Platforms,"Communication Services","Interactive Media & Services",datasets_sp500_wikipedia_mirror
+MPC,MPC,0001510295,"Marathon Petroleum","Energy","Oil & Gas Refining & Marketing",datasets_sp500_wikipedia_mirror
+MSFT,MSFT,0000789019,Microsoft,"Information Technology",Systems Software,datasets_sp500_wikipedia_mirror
+NEE,NEE,0000753308,"NextEra Energy",Utilities,Multi-Utilities,datasets_sp500_wikipedia_mirror
+NEM,NEM,0001164727,"Newmont",Materials,Gold,datasets_sp500_wikipedia_mirror
+NFLX,NFLX,0001065280,Netflix,"Communication Services","Movies & Entertainment",datasets_sp500_wikipedia_mirror
+NVDA,NVDA,0001045810,Nvidia,"Information Technology","Semiconductors",datasets_sp500_wikipedia_mirror
+PG,PG,0000080424,Procter & Gamble,"Consumer Staples","Personal Care Products",datasets_sp500_wikipedia_mirror
+RTX,RTX,0000101829,"RTX Corporation","Industrials","Aerospace & Defense",datasets_sp500_wikipedia_mirror
+SHW,SHW,0000089800,"Sherwin-Williams",Materials,Specialty Chemicals,datasets_sp500_wikipedia_mirror
+SO,SO,0000092122,"Southern Company",Utilities,Electric Utilities,datasets_sp500_wikipedia_mirror
+TMUS,TMUS,0001283699,T-Mobile US,"Communication Services","Wireless Telecommunication Services",datasets_sp500_wikipedia_mirror
+TSLA,TSLA,0001318605,"Tesla, Inc.","Consumer Discretionary","Automobile Manufacturers",datasets_sp500_wikipedia_mirror
+UPS,UPS,0001090727,"United Parcel Service","Industrials",Air Freight & Logistics,datasets_sp500_wikipedia_mirror
+WMT,WMT,0000104169,Walmart,"Consumer Staples","Consumer Staples Merchandise Retail",datasets_sp500_wikipedia_mirror
