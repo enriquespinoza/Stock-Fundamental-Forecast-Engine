@@ -166,7 +166,7 @@ def build_timesfm_actual_returns(timesfm_path: Path, prices_path: Path,
     observed_at = _time(price_manifest.get("observed_at_utc", ""))
 
     required = {"event_id", "issuer_cik", "issuer_symbol", "event_available_at_utc",
-                "forecast_status", "forecast_origin_session_date", "forecast_origin_close_at_utc",
+                "forecast_status", "forecast_generated_at_utc", "forecast_origin_session_date", "forecast_origin_close_at_utc",
                 "forecast_origin_adjusted_close", *(f"forecast_return_{h}s" for h in HORIZONS)}
     missing = required - set(timesfm_columns)
     if missing:
@@ -184,6 +184,7 @@ def build_timesfm_actual_returns(timesfm_path: Path, prices_path: Path,
             "issuer_symbol": symbol, "event_available_at_utc": event_at.isoformat().replace("+00:00", "Z"),
             "primary_sample_eligible": str(event_at.year >= primary_start_year).lower(),
             "forecast_status": feature["forecast_status"],
+            "forecast_generated_at_utc": feature["forecast_generated_at_utc"],
             "forecast_origin_session_date": feature["forecast_origin_session_date"],
             "forecast_origin_close_at_utc": feature["forecast_origin_close_at_utc"],
             "forecast_origin_adjusted_close": feature["forecast_origin_adjusted_close"],
