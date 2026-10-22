@@ -114,3 +114,6 @@ unavailable horizons. The artifact remains research-only.
 Use chronological holdouts and account for overlapping horizons before drawing
 conclusions. The pretrained model's cutoff and adjusted-price revision caveats
 still prevent treating this as a clean historical simulation.
+
+
+The summary reports both transaction-row-weighted metrics and metrics deduplicated by issuer and forecast-origin session. Use the unique-origin view for the primary descriptive comparison because multiple Form 4 transaction rows can share an identical model forecast and realized price path.
