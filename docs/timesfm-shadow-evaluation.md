@@ -125,7 +125,7 @@ and score them:
 
 ~~~sh
 python scripts/score_shadow_predictions.py \
-  --predictions PATH_TO_PAIRED_SHADOW_PREDICTIONS_CSV \
+  --predictions PATH_TO_PREDICTION_RUN_1.csv PATH_TO_PREDICTION_RUN_2.csv \
   --actual-returns PATH_TO_MATCHED_ACTUAL_RETURNS_CSV \
   --prices PATH_TO_ARCHIVED_PRICE_CSV \
   --price-manifest PATH_TO_PRICE_MANIFEST_JSON
@@ -134,7 +134,9 @@ python scripts/score_shadow_predictions.py \
 Prediction output is append-only by run and contains paired model values without
 outcome columns. The scorer verifies input hashes, model origins, event
 availability, forecast creation time, and target-close maturity; it reports
-paired loss changes and issuer-week cluster-bootstrap intervals.
+paired loss changes and issuer-week cluster-bootstrap intervals. Pass all
+prediction runs from the same frozen model pair to calculate cumulative
+holdout metrics and check the fixed 12-month/300-cluster evaluation gate.
 
 Keep the system in shadow mode through the full test. Consider a later research
 review only if the augmented model improves the predeclared primary loss against
