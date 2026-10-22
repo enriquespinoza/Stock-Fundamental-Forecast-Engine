@@ -98,6 +98,14 @@ class OwnershipTests(unittest.TestCase):
         self.assertTrue(row["is_derivative"])
         self.assertFalse(row["is_purchase_sale_candidate"])
 
+    def test_issuer_mismatch_error_reports_both_ciks(self):
+        raw = xml().replace(b"<issuerCik>1</issuerCik>", b"<issuerCik>9</issuerCik>")
+        with self.assertRaisesRegex(
+            ValueError,
+            r"ISSUER_CIK_MISMATCH: XML issuer CIK 0000000009 does not match ledger CIK 0000000001",
+        ):
+            parse_form4(raw, filing())
+
     def test_entities_issuer_mismatch_and_bad_footnotes_rejected(self):
         for raw in (b'<!DOCTYPE ownershipDocument [<!ENTITY x "abc">]><ownershipDocument/>',
                     xml().replace(b"<issuerCik>1", b"<issuerCik>9"),
