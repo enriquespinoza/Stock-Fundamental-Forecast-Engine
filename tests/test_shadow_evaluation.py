@@ -126,6 +126,8 @@ class ShadowEvaluationTests(unittest.TestCase):
             "issuer_symbol": event["issuer_symbol"],
             "event_available_at_utc": event["historical_available_after_utc"],
             "forecast_status": "OK", "forecast_origin_session_date": event["timesfm_forecast_origin_session_date"],
+            "forecast_origin_adjusted_close": event["timesfm_forecast_origin_adjusted_close"],
+            "label_origin_adjusted_close": event["timesfm_forecast_origin_adjusted_close"],
             **{field: "OK" for h in (1, 5, 20) for field in (f"status_{h}s",)},
             **{f"actual_return_{h}s": str(return_base + h / 10000) for h in (1, 5, 20)},
             **{f"actual_end_session_date_{h}s": end_date.isoformat() for h in (1, 5, 20)},
@@ -171,8 +173,11 @@ class ShadowEvaluationTests(unittest.TestCase):
                 "event_id": event_id, "issuer_cik": cik, "issuer_symbol": symbol,
                 "event_available_at_utc": available.isoformat().replace("+00:00", "Z"),
                 "forecast_status": "OK", "forecast_origin_session_date": origin.isoformat(),
+                "forecast_origin_adjusted_close": "100",
+                "label_origin_adjusted_close": str(100 + (origin - date(2024, 1, 1)).days),
                 **{f"status_{h}s": "OK" for h in (1, 5, 20)},
-                **{f"actual_return_{h}s": "0.02" for h in (1, 5, 20)},
+                **{f"actual_return_{h}s": str(
+                    h / (100 + (origin - date(2024, 1, 1)).days)) for h in (1, 5, 20)},
                 **{f"actual_end_session_date_{h}s": (origin + timedelta(days=h)).isoformat()
                    for h in (1, 5, 20)},
             })
@@ -195,15 +200,18 @@ class ShadowEvaluationTests(unittest.TestCase):
             "observed_at_utc": "2024-03-15T00:00:00Z",
             "csv": {"sha256": digest(price_path)},
         }), encoding="utf-8")
-        actual_path = self.root / "score-actual" / "actual.csv"
-        manifested(
-            actual_path, "timesfm-actual-return-evaluation-manifest-v1", actuals,
-            price_input={"sha256": digest(price_path),
-                         "manifest_sha256": digest(price_manifest_path),
-                         "observed_at_utc": "2024-03-15T00:00:00Z"},
-        )
+        actual_paths = []
+        for index, actual in enumerate(actuals):
+            path = self.root / "score-actual" / str(index) / "actual.csv"
+            manifested(
+                path, "timesfm-actual-return-evaluation-manifest-v1", [actual],
+                price_input={"sha256": digest(price_path),
+                             "manifest_sha256": digest(price_manifest_path),
+                             "observed_at_utc": "2024-03-15T00:00:00Z"},
+            )
+            actual_paths.append(path)
         result = score_shadow_predictions(
-            prediction_paths, actual_path, price_path, price_manifest_path,
+            prediction_paths, actual_paths, price_path, price_manifest_path,
             self.root / "scores", replicates=100, scored_at_utc="2024-01-10T00:00:00Z",
         )
         metrics = result["summary"]["metrics"]
@@ -213,6 +221,7 @@ class ShadowEvaluationTests(unittest.TestCase):
         self.assertEqual(result["summary"]["paired_mae_delta_95pct_cluster_ci"]["1s"]["cluster_count"], 1)
         self.assertEqual(result["summary"]["predictions_created_after_score_time"], 1)
         self.assertEqual(result["summary"]["prediction_run_count"], 2)
+        self.assertEqual(result["summary"]["actual_return_run_count"], 2)
         self.assertFalse(result["summary"]["evaluation_progress"]["minimum_gate_met"])
 
     @unittest.skipUnless(importlib.util.find_spec("sklearn"), "install the optional research extra")
