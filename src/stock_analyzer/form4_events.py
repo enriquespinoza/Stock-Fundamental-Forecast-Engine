@@ -129,8 +129,10 @@ def build_form4_event_dataset(normalized_root: Path, output_root: Path, *,
     holdings_count = 0
     for accession, (_, normalized_path, manifest_path, manifest, normalized) in sorted(selected.items()):
         filing = normalized.get("filing", {})
-        if manifest.get("source", {}).get("sha256") != filing.get("raw_sha256"):
-            raise ValueError(f"Raw source hash mismatch for {accession}")
+        source = manifest.get("source", {})
+        document_hash = source.get("document_sha256", source.get("sha256"))
+        if document_hash != filing.get("raw_sha256"):
+            raise ValueError(f"Raw source document hash mismatch for {accession}")
         holdings_count += len(normalized.get("holdings", []))
         for transaction in normalized.get("transactions", []):
             transaction_count += 1
