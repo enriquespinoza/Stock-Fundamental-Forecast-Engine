@@ -46,6 +46,34 @@ def ownership_archive_url(issuer_cik: str, accession_number: str, primary_docume
             f"{accession.replace('-', '')}/{document}")
 
 
+def ownership_submission_url(issuer_cik: str, accession_number: str) -> str:
+    """Build the complete-submission text URL for a Form 4 accession."""
+    cik = str(issuer_cik).strip()
+    accession = str(accession_number).strip()
+    if not re.fullmatch(r"[0-9]{1,10}", cik) or int(cik) == 0:
+        raise ValueError("Invalid issuer CIK for ownership submission URL")
+    if not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession):
+        raise ValueError("Invalid accession for ownership submission URL")
+    return (f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/"
+            f"{accession.replace('-', '')}/{accession}.txt")
+
+
+def extract_ownership_document(submission: bytes) -> bytes:
+    """Extract one raw ownershipDocument from a complete SEC submission."""
+    if len(submission) > 50_000_000:
+        raise ValueError("SEC complete submission exceeds 50MB limit")
+    decoded = submission.decode("utf-8-sig")
+    matches = re.findall(
+        r"<ownershipDocument\b[^>]*>.*?</ownershipDocument\s*>",
+        decoded, flags=re.IGNORECASE | re.DOTALL,
+    )
+    if len(matches) != 1:
+        raise ValueError("Expected exactly one ownershipDocument in SEC submission")
+    document = matches[0].encode("utf-8")
+    SecClient._decode(document, "xml")
+    return document
+
+
 class SecClient:
     """One sequential client; rate budget must be shared across external processes."""
 
@@ -76,8 +104,15 @@ class SecClient:
     def fetch_xml(self, url: str, *, refresh: bool = False) -> Snapshot:
         return self._fetch(url, refresh=refresh, kind="xml")
 
+    def fetch_text(self, url: str, *, refresh: bool = False) -> Snapshot:
+        return self._fetch(url, refresh=refresh, kind="text")
+
     @staticmethod
     def _decode(raw, kind):
+        if kind == "text":
+            if len(raw) > 50_000_000:
+                raise ValueError("SEC complete submission exceeds 50MB limit")
+            return raw
         if kind == "json":
             payload = json.loads(raw)
             if not isinstance(payload, dict):
@@ -99,12 +134,17 @@ class SecClient:
     def _fetch(self, url: str, *, refresh: bool, kind: str) -> Snapshot:
         parsed = urlsplit(url)
         valid_host = parsed.netloc == "data.sec.gov" if kind == "json" else (
-            parsed.netloc == "www.sec.gov" and re.fullmatch(
-                r"/Archives/edgar/data/[0-9]+/[0-9]{18}/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)*"
-                r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.xml", parsed.path, flags=re.IGNORECASE)
+            parsed.netloc == "www.sec.gov" and (
+                re.fullmatch(
+                    r"/Archives/edgar/data/[0-9]+/[0-9]{18}/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)*"
+                    r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.xml", parsed.path, flags=re.IGNORECASE)
+                if kind == "xml" else
+                re.fullmatch(r"/Archives/edgar/data/[0-9]+/[0-9]{18}/[0-9]{10}-[0-9]{2}-[0-9]{6}\.txt",
+                             parsed.path, flags=re.IGNORECASE)
+            )
         )
         if parsed.scheme != "https" or not valid_host or parsed.query or parsed.fragment:
-            raise ValueError("URL must be a permitted SEC data or raw ownership archive URL")
+            raise ValueError("URL must be a permitted SEC data, raw ownership XML, or submission text URL")
         key = hashlib.sha256(url.encode()).hexdigest()
         folder = self.cache_dir / key
         pointer = folder / "latest.json"
@@ -120,7 +160,8 @@ class SecClient:
             return Snapshot(self._decode(raw, kind), url, metadata["observed_at_utc"], digest, path, True)
         for attempt in range(self.retries + 1):
             self._throttle()
-            request = Request(url, headers={"User-Agent": self.user_agent, "Accept": f"application/{kind}"})
+            accept = {"json": "application/json", "xml": "application/xml", "text": "text/plain"}[kind]
+            request = Request(url, headers={"User-Agent": self.user_agent, "Accept": accept})
             try:
                 with self.opener(request, timeout=self.timeout) as response:
                     raw = response.read()
