@@ -61,8 +61,11 @@ def parse_form4(raw: bytes, filing: dict) -> dict:
     if form not in ("4", "4/A") or filing.get("form") != form:
         raise ValueError("Form 4 document and ledger form must agree")
     cik = normalize_cik(text(root, "issuer/issuerCik") or "")
-    if cik != normalize_cik(filing["issuer_cik"]):
-        raise ValueError("Ownership XML issuer does not match ledger")
+    ledger_cik = normalize_cik(filing["issuer_cik"])
+    if cik != ledger_cik:
+        raise ValueError(
+            f"ISSUER_CIK_MISMATCH: XML issuer CIK {cik} does not match ledger CIK {ledger_cik}"
+        )
     if not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", filing["accession_number"]):
         raise ValueError("Invalid ledger accession")
     owners = []
@@ -142,4 +145,3 @@ def parse_form4(raw: bytes, filing: dict) -> dict:
     return {"schema_version": "form4-document-v1", "filing": context,
             "transactions": transactions, "holdings": holdings,
             "all_footnotes": footnotes, "remarks": text(root, "remarks")}
-
