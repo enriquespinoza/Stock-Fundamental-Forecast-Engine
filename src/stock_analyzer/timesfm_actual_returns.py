@@ -128,10 +128,11 @@ def build_timesfm_actual_returns(timesfm_path: Path, prices_path: Path,
                                  price_manifest_path: Path, output_root: Path, *,
                                  primary_start_year: int = 2010,
                                  built_at_utc: str | None = None) -> dict:
-    """Attach realized 1/5/20-session returns from each exact TimesFM origin.
+    """Attach realized 1/5/20-session returns using a verified outcome snapshot.
 
-    The market snapshot is validated against the one recorded by the TimesFM
-    feature manifest. Future closes are labels only; they never enter forecasts.
+    The forecast's origin session and timestamp must match the outcome snapshot.
+    Later adjusted-close revisions are recorded and returns use the origin and
+    target closes from the same outcome snapshot.
     """
     timesfm_path, prices_path = Path(timesfm_path), Path(prices_path)
     price_manifest_path, output_root = Path(price_manifest_path), Path(output_root)
@@ -146,15 +147,7 @@ def build_timesfm_actual_returns(timesfm_path: Path, prices_path: Path,
     if feature_output.get("sha256") != _sha(timesfm_raw) or feature_output.get("row_count") != len(features):
         raise ValueError("TimesFM feature CSV hash or row count does not match its manifest")
     price_input = timesfm_manifest.get("input_prices", {})
-    if price_input.get("path") and Path(price_input["path"]).resolve() != prices_path.resolve():
-        raise ValueError("Price CSV path differs from the TimesFM feature input")
-    if price_input.get("manifest_path") and Path(price_input["manifest_path"]).resolve() != price_manifest_path.resolve():
-        raise ValueError("Price manifest path differs from the TimesFM feature input")
-    if price_input.get("manifest_sha256") != _sha(price_manifest_raw):
-        raise ValueError("Price manifest hash differs from the TimesFM feature input")
     prices_raw, prices = _load_prices(prices_path)
-    if price_input.get("sha256") != _sha(prices_raw):
-        raise ValueError("Price CSV hash differs from the TimesFM feature input")
     if price_manifest.get("schema_version") != "market-price-snapshot-manifest-v1":
         raise ValueError("Unsupported market-price manifest schema")
     if price_manifest.get("csv", {}).get("sha256") != _sha(prices_raw):
@@ -164,6 +157,10 @@ def build_timesfm_actual_returns(timesfm_path: Path, prices_path: Path,
         if int(price_manifest["row_count"]) != len(price_rows):
             raise ValueError("Price CSV row count does not match its manifest")
     observed_at = _time(price_manifest.get("observed_at_utc", ""))
+    feature_price_observed = (_time(price_input["observed_at_utc"])
+                              if price_input.get("observed_at_utc") else None)
+    if feature_price_observed and observed_at < feature_price_observed:
+        raise ValueError("Outcome price snapshot predates the TimesFM feature price snapshot")
 
     required = {"event_id", "issuer_cik", "issuer_symbol", "event_available_at_utc",
                 "forecast_status", "forecast_generated_at_utc", "forecast_origin_session_date", "forecast_origin_close_at_utc",
@@ -188,6 +185,9 @@ def build_timesfm_actual_returns(timesfm_path: Path, prices_path: Path,
             "forecast_origin_session_date": feature["forecast_origin_session_date"],
             "forecast_origin_close_at_utc": feature["forecast_origin_close_at_utc"],
             "forecast_origin_adjusted_close": feature["forecast_origin_adjusted_close"],
+            "label_origin_adjusted_close": None,
+            "origin_price_revision_ratio": None,
+            "origin_adjusted_close_changed": None,
         }
         series = prices.get(symbol, [])
         origin_date = feature["forecast_origin_session_date"]
@@ -200,8 +200,14 @@ def build_timesfm_actual_returns(timesfm_path: Path, prices_path: Path,
                 raise ValueError(f"Forecast origin close timestamp mismatch for event {feature['event_id']}")
             if origin["close_at"] >= event_at:
                 raise ValueError(f"Forecast origin is not strictly before event {feature['event_id']}")
-            if not math.isclose(origin["close"], float(feature["forecast_origin_adjusted_close"]), rel_tol=1e-10, abs_tol=1e-10):
-                raise ValueError(f"Forecast origin close value mismatch for event {feature['event_id']}")
+            feature_origin = float(feature["forecast_origin_adjusted_close"])
+            if not math.isfinite(feature_origin) or feature_origin <= 0:
+                raise ValueError(f"Invalid forecast origin close value for event {feature['event_id']}")
+            revision_ratio = origin["close"] / feature_origin
+            row["label_origin_adjusted_close"] = format(origin["close"], ".12g")
+            row["origin_price_revision_ratio"] = format(revision_ratio, ".12g")
+            row["origin_adjusted_close_changed"] = str(not math.isclose(
+                origin["close"], feature_origin, rel_tol=1e-10, abs_tol=1e-10)).lower()
         for horizon in HORIZONS:
             suffix = f"{horizon}s"
             forecast = _forecast_number(feature.get(f"forecast_return_{suffix}"))
@@ -265,6 +271,9 @@ def build_timesfm_actual_returns(timesfm_path: Path, prices_path: Path,
                                   for h in HORIZONS},
         "primary_sample_metrics_event_weighted": {f"{h}s": _metrics(output, h) for h in HORIZONS},
         "unique_forecast_origin_count": len(_unique_origin_rows(output)),
+        "origin_adjusted_close_revision_count": sum(
+            row["origin_adjusted_close_changed"] == "true" for row in output
+        ),
         "primary_sample_metrics_unique_origins": {
             f"{h}s": _metrics(_unique_origin_rows(output), h) for h in HORIZONS
         },
@@ -277,9 +286,11 @@ def build_timesfm_actual_returns(timesfm_path: Path, prices_path: Path,
         "built_at_utc": stamp,
         "timesfm_features_input": {"path": str(timesfm_path), "sha256": _sha(timesfm_raw),
                                     "manifest_sha256": _sha(timesfm_manifest_path.read_bytes())},
+        "feature_price_input": price_input,
         "price_input": {"path": str(prices_path), "sha256": _sha(prices_raw),
                         "manifest_path": str(price_manifest_path), "manifest_sha256": _sha(price_manifest_raw),
                         "observed_at_utc": price_manifest["observed_at_utc"]},
+        "origin_revision_policy": "Validate forecast origin session and timestamp; compute returns from origin and target adjusted closes in the same outcome snapshot; record any origin price revision ratio.",
         "return_anchor": "TimesFM forecast origin adjusted close",
         "horizon_definition": "actual close at origin session index plus 1, 5, or 20 issuer trading sessions",
         "benchmark": "SPY when matching origin and end sessions are present",
