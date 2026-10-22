@@ -85,3 +85,32 @@ create and test a target definition aligned with the forecast origin, handle
 non-overlapping time splits and overlapping return windows, and compare against
 simple price-history baselines. Preserve the existing SEC pipeline and keep all
 model outputs away from optimizer/order interfaces until separately validated.
+
+
+## Build origin-aligned realized returns
+
+The event research table's `label_forward_return_*` fields use a start close after
+the filing became available. Those labels do not use the same starting price as
+the TimesFM forecasts. Build a separate matched evaluation artifact from the
+TimesFM feature CSV and the exact same immutable price CSV and manifest:
+
+```bash
+python scripts/build_timesfm_actual_returns.py \
+  --timesfm-features "$TIMESFM_RUN/event_timesfm_features.csv" \
+  --prices "$PRICES" \
+  --price-manifest "$PRICE_MANIFEST" \
+  --primary-start-year 2010
+```
+
+For each successful forecast, the builder takes the TimesFM origin close and
+measures the actual issuer close 1, 5, or 20 issuer sessions later. It verifies
+the origin session, close time, origin price, source hashes, and manifest row
+counts. Future market closes are used only as evaluation targets. The output
+includes realized returns, forecast errors, directional agreement, SPY returns
+when matching SPY sessions are present, and primary-sample MAE/RMSE/directional
+accuracy. It reports a zero-return baseline for context and records status for
+unavailable horizons. The artifact remains research-only.
+
+Use chronological holdouts and account for overlapping horizons before drawing
+conclusions. The pretrained model's cutoff and adjusted-price revision caveats
+still prevent treating this as a clean historical simulation.
