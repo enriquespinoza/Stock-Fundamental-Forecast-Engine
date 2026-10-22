@@ -71,12 +71,14 @@ class Form4BatchTests(unittest.TestCase):
             ledger_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
             script = Path(__file__).resolve().parents[1] / "scripts" / "normalize_form4_batch.py"
             completed = type("Completed", (), {"stdout": "ok", "stderr": "", "returncode": 0})()
-            with patch.object(sys, "argv", [str(script), "--ledger", str(ledger_path), "--limit", "10",
-                                             "--output-root", str(root / "normalized"),
-                                             "--summary-root", str(root / "summaries"),
-                                             "--user-agent", "Research Tool contact@example.com"]), \\
-                 patch("subprocess.run", return_value=completed) as run, \\
-                 patch("time.sleep"):
+            with (
+                patch.object(sys, "argv", [str(script), "--ledger", str(ledger_path), "--limit", "10",
+                                           "--output-root", str(root / "normalized"),
+                                           "--summary-root", str(root / "summaries"),
+                                           "--user-agent", "Research Tool contact@example.com"]),
+                patch("subprocess.run", return_value=completed) as run,
+                patch("time.sleep"),
+            ):
                 with self.assertRaises(SystemExit) as exit_result:
                     runpy.run_path(str(script), run_name="__main__")
                 self.assertEqual(exit_result.exception.code, 0)
@@ -112,9 +114,11 @@ class Form4BatchTests(unittest.TestCase):
                       "--summary-root", str(root / "summaries"),
                       "--user-agent", "Research Tool contact@example.com"]
             completed = type("Completed", (), {"stdout": "ok", "stderr": "", "returncode": 0})()
-            with patch.object(sys, "argv", [str(script), *common]), \\
-                 patch("subprocess.run", return_value=completed) as run, \\
-                 patch("time.sleep"):
+            with (
+                patch.object(sys, "argv", [str(script), *common]),
+                patch("subprocess.run", return_value=completed) as run,
+                patch("time.sleep"),
+            ):
                 with self.assertRaises(SystemExit) as exit_result:
                     runpy.run_path(str(script), run_name="__main__")
                 self.assertEqual(exit_result.exception.code, 0)
