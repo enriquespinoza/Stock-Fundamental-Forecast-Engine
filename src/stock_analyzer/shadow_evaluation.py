@@ -578,7 +578,7 @@ def _cluster_ci(rows: list[dict], horizon: int, *, replicates: int, seed: int) -
             "method": "issuer-week cluster bootstrap; resampled clusters preserve event multiplicity"}
 
 
-def score_shadow_predictions(predictions_path: Path | list[Path], actual_returns_path: Path,
+def score_shadow_predictions(predictions_path: Path | list[Path], actual_returns_path: Path | list[Path],
                              prices_path: Path, price_manifest_path: Path,
                              output_root: Path, *, replicates: int = 2000,
                              seed: int = 20261022, scored_at_utc: str | None = None) -> dict:
@@ -591,8 +591,8 @@ def score_shadow_predictions(predictions_path: Path | list[Path], actual_returns
         prediction_paths = [Path(path) for path in predictions_path]
     if not prediction_paths:
         raise ValueError("Provide at least one paired prediction CSV")
-    actual_returns_path, prices_path, price_manifest_path, output_root = map(
-        Path, (actual_returns_path, prices_path, price_manifest_path, output_root))
+    prices_path, price_manifest_path, output_root = map(
+        Path, (prices_path, price_manifest_path, output_root))
     predictions = []
     prediction_inputs = []
     common_model_identity = None
@@ -628,17 +628,34 @@ def score_shadow_predictions(predictions_path: Path | list[Path], actual_returns
         predictions.extend(rows)
         prediction_inputs.append({"path": str(path), "sha256": _sha(path.read_bytes()),
                                   "manifest_sha256": _sha(manifest_raw)})
-    _, actual_manifest, actuals = _manifested_csv(
-        actual_returns_path, "timesfm-actual-return-evaluation-manifest-v1")
-    actual_manifest_raw = (actual_returns_path.parent / "manifest.json").read_bytes()
+    if isinstance(actual_returns_path, (str, Path)):
+        actual_paths = [Path(actual_returns_path)]
+    else:
+        actual_paths = [Path(path) for path in actual_returns_path]
+    if not actual_paths:
+        raise ValueError("Provide at least one realized-return CSV")
     price_manifest_raw = price_manifest_path.read_bytes()
     price_manifest = json.loads(price_manifest_raw.decode("utf-8"))
     price_raw, price_columns, price_rows = _read_csv(prices_path)
-    price_input = actual_manifest.get("price_input", {})
-    if price_input.get("sha256") != _sha(price_raw):
-        raise ValueError("Price CSV differs from the snapshot used to build actual returns")
-    if price_input.get("manifest_sha256") != _sha(price_manifest_raw):
-        raise ValueError("Price manifest differs from the snapshot used to build actual returns")
+    actuals = []
+    actual_return_inputs = []
+    actual_ids = set()
+    expected_price_identity = (_sha(price_raw), _sha(price_manifest_raw))
+    for path in actual_paths:
+        _, actual_manifest, rows = _manifested_csv(
+            path, "timesfm-actual-return-evaluation-manifest-v1")
+        actual_manifest_raw = (path.parent / "manifest.json").read_bytes()
+        price_input = actual_manifest.get("price_input", {})
+        if (price_input.get("sha256"), price_input.get("manifest_sha256")) != expected_price_identity:
+            raise ValueError("Outcome runs use a different price snapshot than the scorer")
+        for row in rows:
+            event_id = row.get("event_id")
+            if not event_id or event_id in actual_ids:
+                raise ValueError(f"Missing or duplicate event ID across actual-return runs: {event_id!r}")
+            actual_ids.add(event_id)
+        actuals.extend(rows)
+        actual_return_inputs.append({"path": str(path), "sha256": _sha(path.read_bytes()),
+                                     "manifest_sha256": _sha(actual_manifest_raw)})
     if price_manifest.get("csv", {}).get("sha256") != _sha(price_raw):
         raise ValueError("Price CSV hash does not match its manifest")
     if not predictions:
@@ -683,9 +700,14 @@ def score_shadow_predictions(predictions_path: Path | list[Path], actual_returns
                                            prediction["forecast_origin_session_date"]))
         if origin is None or _timestamp(origin["close_at_utc"]) != _timestamp(prediction["forecast_origin_close_at_utc"]):
             raise ValueError(f"Prediction origin does not match archived market data for {event_id}")
-        if not math.isclose(float(origin["adjusted_close"]), float(prediction["forecast_origin_adjusted_close"]),
+        if not math.isclose(float(actual.get("forecast_origin_adjusted_close") or "nan"),
+                            float(prediction["forecast_origin_adjusted_close"]),
                             rel_tol=1e-10, abs_tol=1e-10):
-            raise ValueError(f"Prediction origin close value mismatch for {event_id}")
+            raise ValueError(f"Forecast feature origin value mismatch for {event_id}")
+        if not math.isclose(float(origin["adjusted_close"]),
+                            float(actual.get("label_origin_adjusted_close") or "nan"),
+                            rel_tol=1e-10, abs_tol=1e-10):
+            raise ValueError(f"Outcome label origin value does not match archived price data for {event_id}")
         row = {**prediction, "forecast_status": actual.get("forecast_status", "")}
         for horizon in HORIZONS:
             suffix = f"{horizon}s"
@@ -697,6 +719,11 @@ def score_shadow_predictions(predictions_path: Path | list[Path], actual_returns
                     raise ValueError(f"Matured outcome has no archived end close for {event_id} {suffix}")
                 if _timestamp(end["close_at_utc"]) > scored_at:
                     status = "OUTCOME_NOT_YET_MATURED"
+                else:
+                    expected_return = float(end["adjusted_close"]) / float(origin["adjusted_close"]) - 1.0
+                    if not math.isclose(expected_return, float(actual.get(f"actual_return_{suffix}") or "nan"),
+                                        rel_tol=1e-9, abs_tol=1e-9):
+                        raise ValueError(f"Actual return does not match archived origin/end closes for {event_id} {suffix}")
             row[f"status_{suffix}"] = status
             row[f"actual_return_{suffix}"] = actual.get(f"actual_return_{suffix}")
         joined.append(row)
@@ -713,7 +740,7 @@ def score_shadow_predictions(predictions_path: Path | list[Path], actual_returns
     summary = {
         "schema_version": "paired-shadow-score-summary-v1",
         "prediction_count": len(predictions), "prediction_run_count": len(prediction_paths),
-        "matched_outcome_count": len(joined),
+        "matched_outcome_count": len(joined), "actual_return_run_count": len(actual_paths),
         "predictions_created_after_score_time": not_yet_created_count,
         "matured_status_counts": {f"{h}s": {status: sum(row[f"status_{h}s"] == status for row in joined)
                                                for status in sorted({row[f"status_{h}s"] for row in joined})}
@@ -746,8 +773,7 @@ def score_shadow_predictions(predictions_path: Path | list[Path], actual_returns
     manifest = {
         "schema_version": "paired-shadow-score-manifest-v1", "built_at_utc": stamp,
         "prediction_inputs": prediction_inputs,
-        "actual_returns_input": {"path": str(actual_returns_path), "sha256": _sha(actual_returns_path.read_bytes()),
-                                 "manifest_sha256": _sha(actual_manifest_raw)},
+        "actual_returns_inputs": actual_return_inputs,
         "price_input": {"path": str(prices_path), "sha256": _sha(price_raw),
                         "manifest_path": str(price_manifest_path), "manifest_sha256": _sha(price_manifest_raw)},
         "bootstrap": {"method": "issuer-week cluster bootstrap", "replicates": replicates, "seed": seed},
