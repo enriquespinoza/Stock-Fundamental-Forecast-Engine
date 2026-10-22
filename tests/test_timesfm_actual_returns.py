@@ -37,6 +37,7 @@ class TimesFMActualReturnTests(unittest.TestCase):
         self.features_path = self.feature_dir / "event_timesfm_features.csv"
         fields = ["event_id", "issuer_cik", "issuer_symbol", "event_available_at_utc",
                   "forecast_status", "forecast_origin_session_date", "forecast_origin_close_at_utc",
+                  "forecast_generated_at_utc",
                   "forecast_origin_adjusted_close", "forecast_return_1s", "forecast_return_5s",
                   "forecast_return_20s"]
         with self.features_path.open("w", encoding="utf-8", newline="") as stream:
@@ -44,6 +45,7 @@ class TimesFMActualReturnTests(unittest.TestCase):
             writer.writeheader()
             writer.writerow({"event_id": "e1", "issuer_cik": "0000000001", "issuer_symbol": "AAA",
                              "event_available_at_utc": "2024-01-03T20:01:00Z", "forecast_status": "OK",
+                             "forecast_generated_at_utc": "2024-01-03T20:02:00Z",
                              "forecast_origin_session_date": "2024-01-03",
                              "forecast_origin_close_at_utc": "2024-01-03T20:00:00Z",
                              "forecast_origin_adjusted_close": "103",
@@ -52,6 +54,7 @@ class TimesFMActualReturnTests(unittest.TestCase):
             writer.writerow({"event_id": "e2", "issuer_cik": "0000000001", "issuer_symbol": "AAA",
                              "event_available_at_utc": "2009-01-01T00:00:00Z",
                              "forecast_status": "INSUFFICIENT_POINT_IN_TIME_CONTEXT",
+                             "forecast_generated_at_utc": "",
                              "forecast_origin_session_date": "", "forecast_origin_close_at_utc": "",
                              "forecast_origin_adjusted_close": "", "forecast_return_1s": "",
                              "forecast_return_5s": "", "forecast_return_20s": ""})
