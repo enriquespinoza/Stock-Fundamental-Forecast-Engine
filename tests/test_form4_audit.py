@@ -74,6 +74,50 @@ class Form4AuditTests(unittest.TestCase):
             self.assertEqual(report["filings"]["owner_role_counts"], {"officer": 1})
             self.assertEqual(report["filings"]["candidate_counts_by_plan"], {"sale|10b5-1=True": 1})
 
+    def test_audits_complete_submission_and_extracted_xml_hashes_separately(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            row = {"accession_number": "0000000001-26-000004", "form": "4",
+                   "issuer_cik": "0000000001", "filing_date": "2026-10-01",
+                   "primary_document": "ownership.xml"}
+            ledger_path = root / "ledger.jsonl"
+            ledger_raw = (json.dumps(row) + "\n").encode()
+            ledger_path.write_bytes(ledger_raw)
+
+            xml = b"<ownershipDocument/>"
+            submission = b"complete SEC submission containing ownership XML"
+            submission_path = root / "submission.txt"
+            submission_path.write_bytes(submission)
+            filing = {"accession_number": row["accession_number"],
+                      "issuer_cik": row["issuer_cik"],
+                      "raw_sha256": hashlib.sha256(xml).hexdigest(),
+                      "aff10b5one": None, "is_amendment": False,
+                      "reporting_owners": [], "historical_available_after_utc": "2026-10-01T00:00:00Z"}
+            normalized = {"filing": filing, "transactions": [], "holdings": []}
+            normalized_raw = (json.dumps(normalized, sort_keys=True, indent=2) + "\n").encode()
+            output = root / "normalized" / "form4" / "run"
+            output.mkdir(parents=True)
+            (output / "normalized.json").write_bytes(normalized_raw)
+            manifest = {
+                "command": "form4",
+                "ledger_sha256": hashlib.sha256(ledger_raw).hexdigest(),
+                "normalized_sha256": hashlib.sha256(normalized_raw).hexdigest(),
+                "source": {
+                    "path": str(submission_path),
+                    "sha256": hashlib.sha256(submission).hexdigest(),
+                    "document_sha256": hashlib.sha256(xml).hexdigest(),
+                },
+            }
+            (output / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+            report = audit_form4_history(ledger_path, root / "normalized", base_dir=root)
+            checks = report["artifacts"]["integrity_check_counts"]
+            self.assertEqual(report["artifacts"]["integrity_issues"], [])
+            self.assertEqual(report["artifacts"]["source_file_unavailable_count"], 0)
+            self.assertEqual(checks["source_hash_matches_document"], 1)
+            self.assertEqual(checks["source_file_verified"], 1)
+            self.assertEqual(checks["document_hash_well_formed"], 1)
+
     def test_xml_viewer_response_is_unsupported_not_missing_supported(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
