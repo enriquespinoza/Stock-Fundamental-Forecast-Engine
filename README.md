@@ -1,8 +1,8 @@
 # Stock Fundamental Forecast Engine
 
-Research engine for financial-statement, insider-transaction, market, and macro features intended to estimate future stock returns. Works alongside TMF Predictive Analytics and informs the portfolio optimizer before the execution engine acts.
+Research engine for SEC filing, financial-statement, market, and macro features intended to estimate future stock returns. Works alongside TMF Predictive Analytics and informs the portfolio optimizer before the execution engine acts.
 
-**Status: SEC normalization, point-in-time financial joins, and a forward-return label builder. No forecasts, trading recommendations, or established predictive edge yet.**
+**Status: SEC normalization, point-in-time financial joins, and return-label tooling are implemented. Comparative filing-signal research and validated forecasts remain in progress. No established predictive edge or orders.**
 
 ## Implemented
 
@@ -56,35 +56,30 @@ The client is sequential and uses two requests per second by default. Coordinate
 
 ## Timing rules and limits
 
-The ledger uses acceptance metadata plus a declared processing delay as a conservative historical availability proxy. Live availability also respects actual download time. This is a timestamp ledger, not an exchange calendar: a later step must map eligible timestamps to the next trading session. Do not use report dates or insider transaction dates as public availability timestamps.
+The ledger uses acceptance metadata plus a declared processing delay as a conservative historical availability proxy. Live availability also respects actual download time. This is a timestamp ledger, not an exchange calendar: each research step must map eligible timestamps to the next actionable trading session. Do not use report dates or insider transaction dates as public availability timestamps.
 
-Later comparative disclosures and restatements must not overwrite information available at earlier decision dates. The normalization command retains fact versions and selects facts only after their ledger availability cutoff. It does not yet construct a market-session feature panel. Missing acceptance times remain unknown; historical pages without those times need filing-header enrichment before use.
+Later comparative disclosures and restatements must not overwrite information available at earlier decision dates. The normalization command retains fact versions and selects facts only after their ledger availability cutoff. Missing acceptance times remain unknown; historical pages without those times need filing-header enrichment before use.
 
-Individual raw Form 4 XML can now be downloaded and cached through the normalization command. Bulk document discovery, long-term security/ticker history, and models are **not implemented**. The market-price downloader creates a timestamped AAPL/SPY CSV and manifest; it uses Yahoo adjusted closes and XNYS scheduled closes. Financial mappings are limited to ten US-GAAP metrics; custom tags, IFRS, segments, and industry-specific accounting remain uncovered. Refresh observations do not reconstruct what our system downloaded before it existed.
-
-## Normalize financial facts and Form 4
-
-See [normalization guide](docs/normalization.md) for commands, output fields, and limitations. Start with an ingestion run's ledger and the Company Facts raw path listed in its manifest. The normalization command creates a new run directory containing `normalized.json` and `manifest.json`.
+The current 32-issuer pilot was selected from a 2026 S&P 500 snapshot. Use it to validate ingestion, parsing, and prospective capture. It is not a historical point-in-time universe and cannot support broad historical correlation or generalization claims. See [universe expansion and survivorship controls](docs/universe-expansion.md).
 
 ## Build forward-return labels
 
-See [market data and return labels](docs/market-data.md) for the download, label, and event-level dataset commands. Labels start from the issuer's first actual close strictly after Form 4 historical availability; the benchmark must match that same session, and a missing benchmark bar never shifts the issuer start. The default primary research window begins in 2010; earlier rows remain in the output with `primary_sample_eligible=false`. The first AAPL run validates data plumbing only.
+See [market data and return labels](docs/market-data.md) for the download, label, and event-level dataset commands. Labels start from a close strictly after event availability, retain actual close times, and use immutable input hashes. The first AAPL run validates plumbing only.
 
-For expanding beyond AAPL, see [multi-issuer point-in-time research](docs/multi-issuer-research.md). The universe join verifies per-issuer financial snapshots and prevents facts from crossing company boundaries.
+## Research question and roadmap
 
-## Integration and research roadmap
+The primary study asks which SEC filing families and extracted features are associated with subsequent returns, and which features add predictive value after controlling for market data and other SEC disclosures. Form 4 is one signal family among several.
 
-1. Finish the point-in-time data foundation: archive filing documents, enrich acceptance metadata, parse Form 4 XML, normalize accounting periods and security identities.
-2. Validate the 1-, 5-, and 20-session label pipeline, then broaden price and SEC coverage before creating the architecture's 21- and 63-session research targets. Assess correlations, stability, and coverage only after those checks.
-3. Compare price-only baselines against SEC-feature models in chronological walk-forward tests.
-4. Publish versioned forecasts, calibrated uncertainty, and cited evidence to the orchestrator. Changed forecasts can trigger re-optimization; the analyzer never places orders.
-5. Run dry integration with SimulationBroker, then prospective paper validation over completed forecast horizons before promotion.
+See [SEC filing signals and future stock returns](docs/sec-filing-signal-study.md) for filing groups, release-time rules, hypotheses, model comparisons, feature-importance methods, and research gates. The historical SEC filing study and the prospective TimesFM add-on are separate tracks; the TimesFM-specific calibration and holdout calendar does not delay the SEC-only analysis.
 
-See [architecture](docs/architecture.md) for contracts, scope, and validation gates. Model changes remain experimental until validated and pinned to a specific version. The Decision Review Engine measures predictions against outcomes without silently changing a frozen model.
+The 2026 pilot cohort remains a pipeline and prospective-capture cohort. Broad historical claims require a survivor-free point-in-time security universe, stable issuer/security identifiers, delisting outcomes, and audited filing availability. Until those data pass review, historical pilot analyses remain exploratory.
+
+Any future forecast interface to the orchestrator must publish versioned estimates, uncertainty, timestamps, and provenance. The analyzer does not place orders. A promising research result requires a separate paper-trading and operational validation gate before promotion.
+
+See [architecture](docs/architecture.md) for component boundaries and [prospective TimesFM shadow evaluation](docs/timesfm-shadow-evaluation.md) for the model-specific add-on.
 
 ## SEC references
 
 - [EDGAR APIs](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
 - [Developer resources and fair access](https://www.sec.gov/about/developer-resources)
 - [Insider transaction background](https://www.sec.gov/files/forms-3-4-5.pdf)
-
