@@ -177,7 +177,7 @@ class SecClient:
             else:
                 valid_host = False
         if parsed.scheme != "https" or not valid_host or parsed.query or parsed.fragment:
-            raise ValueError("URL must be a permitted SEC data, raw ownership XML, or submission text URL")
+            raise ValueError("URL must be a permitted SEC data, raw ownership XML, submission text, or SEC Archives document URL")
         key = hashlib.sha256(url.encode()).hexdigest()
         folder = self.cache_dir / key
         pointer = folder / "latest.json"
