@@ -135,7 +135,7 @@ class OwnershipTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 ownership_submission_url(cik, accession)
         embedded = b"SEC complete submission\n" + xml() + b"\nend"
-        self.assertEqual(extract_ownership_document(embedded), xml())
+        self.assertEqual(extract_ownership_document(embedded), b"<ownershipDocument" + xml().split(b"<ownershipDocument", 1)[1])
         with self.assertRaises(ValueError):
             extract_ownership_document(b"<html>no ownership XML</html>")
 
@@ -275,7 +275,7 @@ class FinancialTests(unittest.TestCase):
                 runpy.run_path(str(script), run_name="__main__")
             manifest = json.loads(next((root / "output").glob("form4/*/manifest.json")).read_text())
             self.assertEqual(manifest["source"]["sha256"], snapshot.sha256)
-            self.assertEqual(manifest["source"]["document_sha256"], __import__("hashlib").sha256(xml()).hexdigest())
+            self.assertEqual(manifest["source"]["document_sha256"], __import__("hashlib").sha256(extract_ownership_document(snapshot.payload)).hexdigest())
             self.assertEqual(manifest["source"]["extraction"], "ownershipDocument from complete-submission text")
             normalized = json.loads(next((root / "output").glob("form4/*/normalized.json")).read_text())
             self.assertEqual(normalized["filing"]["source_url"], snapshot.source_url)
