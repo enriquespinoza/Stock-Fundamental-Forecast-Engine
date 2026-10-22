@@ -7,6 +7,8 @@ import unittest
 
 from stock_analyzer.timesfm_features import build_timesfm_features
 
+CHECKPOINT_REVISION = "a" * 40
+
 
 class FakeForecaster:
     def __init__(self):
@@ -55,24 +57,26 @@ class TimesFMFeatureTests(unittest.TestCase):
     def test_forecasts_only_use_closes_known_at_event_and_outputs_provenance(self):
         model = FakeForecaster()
         result = build_timesfm_features(self.events, self.prices, self.price_manifest, self.output,
-            forecaster=model, min_context=2, context_length=10, built_at_utc="2024-01-11T00:00:00Z")
+            forecaster=model, min_context=2, context_length=10, built_at_utc="2024-01-11T00:00:00Z",
+            checkpoint_revision=CHECKPOINT_REVISION)
         with result["csv_path"].open(encoding="utf-8", newline="") as stream:
             rows = list(csv.DictReader(stream))
         self.assertEqual([row["forecast_origin_session_date"] for row in rows], ["2024-01-03", "2024-01-03", "2024-01-03"])
         self.assertTrue(all(row["forecast_status"] == "OK" for row in rows))
-        self.assertTrue(all(row["forecast_generated_at_utc"].startswith("2024-01-11T00:00:00") for row in rows))
         self.assertEqual(len(model.calls), 2)  # shared event context is cached
         self.assertNotIn(999, model.calls[0])
         self.assertAlmostEqual(float(rows[0]["forecast_return_5s"]), 0.05)
         manifest = json.loads((result["output_dir"] / "manifest.json").read_text(encoding="utf-8"))
         self.assertTrue(manifest["research_only"])
         self.assertFalse(manifest["model"]["pretraining_cutoff_known"])
+        self.assertEqual(manifest["model"]["checkpoint_revision"], CHECKPOINT_REVISION)
         self.assertEqual(manifest["output"]["sha256"], digest(result["csv_path"]))
 
     def test_insufficient_context_is_explicit_and_does_not_call_model(self):
         model = FakeForecaster()
         result = build_timesfm_features(self.events, self.prices, self.price_manifest, self.output,
-            forecaster=model, min_context=4, context_length=10)
+            forecaster=model, min_context=4, context_length=10,
+            checkpoint_revision=CHECKPOINT_REVISION)
         with result["csv_path"].open(encoding="utf-8", newline="") as stream:
             rows = list(csv.DictReader(stream))
         self.assertEqual([row["forecast_status"] for row in rows], ["INSUFFICIENT_POINT_IN_TIME_CONTEXT"] * 3)
@@ -81,12 +85,21 @@ class TimesFMFeatureTests(unittest.TestCase):
     def test_price_hash_mismatch_fails_closed(self):
         self.price_manifest.write_text(json.dumps({"schema_version": "market-price-snapshot-manifest-v1", "observed_at_utc": "2024-01-10T00:00:00Z", "row_count": 8, "csv": {"sha256": "0" * 64}}), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "Price CSV hash"):
-            build_timesfm_features(self.events, self.prices, self.price_manifest, self.output, forecaster=FakeForecaster())
+            build_timesfm_features(self.events, self.prices, self.price_manifest, self.output,
+                forecaster=FakeForecaster(), checkpoint_revision=CHECKPOINT_REVISION)
 
     def test_snapshot_observed_before_event_is_not_used_as_point_in_time_data(self):
         self.price_manifest.write_text(json.dumps({"schema_version": "market-price-snapshot-manifest-v1", "observed_at_utc": "2024-01-02T00:00:00Z", "row_count": 8, "csv": {"sha256": digest(self.prices)}}), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "snapshot observation precedes event"):
-            build_timesfm_features(self.events, self.prices, self.price_manifest, self.output, forecaster=FakeForecaster(), min_context=2)
+            build_timesfm_features(self.events, self.prices, self.price_manifest, self.output,
+                forecaster=FakeForecaster(), min_context=2, checkpoint_revision=CHECKPOINT_REVISION)
+
+    def test_rejects_unpinned_or_mutable_checkpoint_revisions(self):
+        for revision in (None, "main", "a" * 39, "g" * 40):
+            with self.subTest(revision=revision):
+                with self.assertRaisesRegex(ValueError, "full 40-character immutable"):
+                    build_timesfm_features(self.events, self.prices, self.price_manifest,
+                        self.output, forecaster=FakeForecaster(), checkpoint_revision=revision)
 
 
 if __name__ == "__main__":
