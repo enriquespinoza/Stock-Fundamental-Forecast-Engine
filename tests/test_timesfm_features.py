@@ -60,6 +60,7 @@ class TimesFMFeatureTests(unittest.TestCase):
             rows = list(csv.DictReader(stream))
         self.assertEqual([row["forecast_origin_session_date"] for row in rows], ["2024-01-03", "2024-01-03", "2024-01-03"])
         self.assertTrue(all(row["forecast_status"] == "OK" for row in rows))
+        self.assertTrue(all(row["forecast_generated_at_utc"] == "2024-01-11T00:00:00Z" for row in rows))
         self.assertEqual(len(model.calls), 2)  # shared event context is cached
         self.assertNotIn(999, model.calls[0])
         self.assertAlmostEqual(float(rows[0]["forecast_return_5s"]), 0.05)
