@@ -60,9 +60,11 @@ evaluation clock.
   can be clustered in statistical analysis.
 - Use only SEC facts selected as of event availability and only market closes
   strictly before the event availability time. Future closes are labels only.
-- Store the original forecast CSVs and manifests immutably. Later scoring may
-  use a newer price snapshot for realized outcomes, but must verify the event's
-  origin session and disclose any adjusted-price revisions.
+- Store the original forecast CSVs and manifests immutably. Build realized
+  outcomes from a later market snapshot as closes mature. Verify the forecast
+  origin session and close timestamp; compute returns from both origin and
+  target closes in the same outcome snapshot, and record any adjusted-price
+  revision relative to the forecast snapshot.
 
 ## Outcomes and analysis
 
@@ -121,12 +123,13 @@ python scripts/build_shadow_predictions.py \
 ~~~
 
 After outcomes mature, build matched return rows using the same TimesFM origin
-and score them:
+and a newer price snapshot. Pass all prediction runs and outcome runs from the
+same frozen model pair:
 
 ~~~sh
 python scripts/score_shadow_predictions.py \
   --predictions PATH_TO_PREDICTION_RUN_1.csv PATH_TO_PREDICTION_RUN_2.csv \
-  --actual-returns PATH_TO_MATCHED_ACTUAL_RETURNS_CSV \
+  --actual-returns PATH_TO_OUTCOME_RUN_1.csv PATH_TO_OUTCOME_RUN_2.csv \
   --prices PATH_TO_ARCHIVED_PRICE_CSV \
   --price-manifest PATH_TO_PRICE_MANIFEST_JSON
 ~~~
