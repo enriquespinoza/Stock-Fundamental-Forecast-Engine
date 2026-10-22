@@ -210,6 +210,12 @@ class ShadowEvaluationTests(unittest.TestCase):
 
     @unittest.skipUnless(importlib.util.find_spec("sklearn"), "install the optional research extra")
     def test_training_uses_only_post_checkpoint_features_and_prediction_is_frozen_paired(self):
+        self.train_rows[0]["timesfm_forecast_created_at_utc"] = "2024-01-22T20:00:00Z"
+        manifested(
+            self.research_path, "form4-event-research-timesfm-manifest-v1", self.train_rows,
+            timesfm_features_input={"path": str(self.tf_path), "sha256": digest(self.tf_path),
+                                    "manifest_sha256": digest(self.tf_root / "manifest.json")},
+        )
         result = train_shadow_model_pair(
             self.research_path, self.actual_path, self.output_root,
             training_cutoff_utc="2024-12-31T00:00:00Z",
@@ -219,7 +225,8 @@ class ShadowEvaluationTests(unittest.TestCase):
             minimum_training_rows=10,
             built_at_utc="2025-01-01T00:00:01Z",
         )
-        self.assertEqual(result["summary"]["horizon_training"]["20s"]["training_row_count"], 45)
+        self.assertEqual(result["summary"]["horizon_training"]["20s"]["training_row_count"], 44)
+        self.assertEqual(result["summary"]["horizon_training"]["20s"]["excluded_features_created_after_target"], 1)
         self.assertEqual(result["manifest"]["timesfm_checkpoint"]["checkpoint_revision"], REVISION)
 
         # Construct a new, post-freeze event and a pinned feature/price snapshot.
