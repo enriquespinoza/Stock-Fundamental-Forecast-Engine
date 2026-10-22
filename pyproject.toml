@@ -14,6 +14,9 @@ market-data = [
     "yfinance==1.7.0",
     "exchange-calendars==4.13.2",
 ]
+timesfm = [
+    "timesfm[torch]==2.0.2",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
