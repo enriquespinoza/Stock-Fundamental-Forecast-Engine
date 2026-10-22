@@ -513,7 +513,10 @@ def _loss_metrics(rows: list[dict], horizon: int) -> dict:
     augmented_abs = [abs(error) for error in augmented_errors]
     baseline_sq = [error * error for error in baseline_errors]
     augmented_sq = [error * error for error in augmented_errors]
-    direction = lambda prediction, value: (prediction > 0) == (value > 0)
+    base_directional = [(prediction, value) for prediction, value in zip(base, actual)
+                        if prediction != 0 and value != 0]
+    augmented_directional = [(prediction, value) for prediction, value in zip(augmented, actual)
+                             if prediction != 0 and value != 0]
     return {
         "matched_count": len(matched),
         "sec_baseline_mae": sum(baseline_abs) / len(matched),
@@ -524,8 +527,12 @@ def _loss_metrics(rows: list[dict], horizon: int) -> dict:
         "rmse_delta_augmented_minus_baseline": math.sqrt(sum(augmented_sq) / len(matched)) - math.sqrt(sum(baseline_sq) / len(matched)),
         "sec_baseline_mean_error": sum(baseline_errors) / len(matched),
         "sec_timesfm_mean_error": sum(augmented_errors) / len(matched),
-        "sec_baseline_directional_accuracy": sum(direction(p, a) for p, a in zip(base, actual)) / len(matched),
-        "sec_timesfm_directional_accuracy": sum(direction(p, a) for p, a in zip(augmented, actual)) / len(matched),
+        "sec_baseline_directional_accuracy": (
+            sum((p > 0) == (a > 0) for p, a in base_directional) / len(base_directional)
+            if base_directional else None),
+        "sec_timesfm_directional_accuracy": (
+            sum((p > 0) == (a > 0) for p, a in augmented_directional) / len(augmented_directional)
+            if augmented_directional else None),
         "zero_return_mae": sum(abs(value) for value in actual) / len(matched),
         "zero_return_rmse": math.sqrt(sum(value * value for value in actual) / len(matched)),
     }
