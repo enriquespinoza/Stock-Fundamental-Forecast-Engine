@@ -35,7 +35,9 @@ augmented model on TimesFM forecasts generated for older historical events. Pin
 the checkpoint to an immutable 40-character Hugging Face revision and start a
 prospective calibration capture. The paired-model trainer accepts only events
 available after that capture start, and only target closes observed before the
-explicit training cutoff. Freeze the paired estimators after enough outcomes
+explicit training cutoff. It also requires each per-event TimesFM forecast
+timestamp to precede that event's target close, so retrospective replays cannot
+be passed off as prospective training inputs. Freeze the paired estimators after enough outcomes
 have matured. The evaluation period begins after that freeze; calibration rows
 are never counted as evaluation results.
 
