@@ -78,6 +78,26 @@ class TimesFMActualReturnTests(unittest.TestCase):
                                             self.price_manifest_path, self.output_root,
                                             built_at_utc="2024-02-02T00:00:00Z")
 
+    def test_manifest_build_time_supplies_generation_time_for_existing_feature_runs(self):
+        with self.features_path.open(encoding="utf-8", newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        fields = [field for field in rows[0] if field != "forecast_generated_at_utc"]
+        for row in rows:
+            row.pop("forecast_generated_at_utc", None)
+        with self.features_path.open("w", encoding="utf-8", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=fields, lineterminator="\\n")
+            writer.writeheader()
+            writer.writerows(rows)
+        manifest = json.loads(self.feature_manifest_path.read_text(encoding="utf-8"))
+        manifest["built_at_utc"] = "2024-02-02T00:00:00Z"
+        manifest["output"]["sha256"] = digest(self.features_path)
+        self.feature_manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        result = self.build()
+        with result["csv_path"].open(encoding="utf-8", newline="") as stream:
+            row = next(csv.DictReader(stream))
+        self.assertEqual(row["forecast_generated_at_utc"], manifest["built_at_utc"])
+
     def test_realized_returns_use_timesfm_origin_and_exact_session_horizons(self):
         result = self.build()
         with result["csv_path"].open(encoding="utf-8", newline="") as stream:
