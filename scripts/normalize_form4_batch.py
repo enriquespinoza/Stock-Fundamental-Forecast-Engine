@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -65,8 +66,8 @@ def main() -> int:
     ]
     existing = already_normalized(args.output_root)
 
-    # Keep response-format exclusions across runs so viewer URLs are not fetched repeatedly.
     prior_unsupported = {}
+    prior_issuer_mismatches = {}
     for prior_path in args.summary_root.glob("form4-batch-*.json"):
         try:
             prior = json.loads(prior_path.read_text(encoding="utf-8"))
@@ -79,17 +80,23 @@ def main() -> int:
                     and item.get("detected_response") and item.get("accession_number")
                     and not args.retry_unsupported):
                 prior_unsupported[item["accession_number"]] = item
+        for item in prior.get("issuer_mismatch_exclusions", []):
+            if filing_is_in_scope(item, start_date) and item.get("accession_number"):
+                prior_issuer_mismatches[item["accession_number"]] = item
 
     filings = []
     unsupported_source_format = list(prior_unsupported.values())
+    issuer_mismatch_exclusions = list(prior_issuer_mismatches.values())
     known_unsupported = set(prior_unsupported)
+    known_issuer_mismatches = set(prior_issuer_mismatches)
     seen = set()
     for row in ledger:
         accession = row.get("accession_number")
         document = row.get("primary_document") or ""
         if (not filing_is_in_scope(row, start_date)
                 or row.get("form") not in ("4", "4/A") or not accession
-                or accession in existing or accession in seen or accession in known_unsupported):
+                or accession in existing or accession in seen
+                or accession in known_unsupported or accession in known_issuer_mismatches):
             continue
         seen.add(accession)
         if not document.lower().endswith(".xml"):
@@ -108,7 +115,7 @@ def main() -> int:
         reverse=True,
     )
     selected = filings[:args.limit]
-    if not selected and not unsupported_source_format:
+    if not selected and not unsupported_source_format and not issuer_mismatch_exclusions:
         print("No unprocessed Form 4 filings found.")
         return 0
 
@@ -147,6 +154,24 @@ def main() -> int:
             })
             continue
 
+        mismatch = re.search(
+            r"ISSUER_CIK_MISMATCH: XML issuer CIK ([0-9]{10}) "
+            r"does not match ledger CIK ([0-9]{10})",
+            stderr,
+        )
+        if mismatch:
+            issuer_mismatch_exclusions.append({
+                "accession_number": accession,
+                "filing_date": filing.get("filing_date"),
+                "form": filing["form"],
+                "primary_document": filing.get("primary_document"),
+                "source_url": filing.get("source_url"),
+                "xml_issuer_cik": mismatch.group(1),
+                "ledger_issuer_cik": mismatch.group(2),
+                "status": "EXCLUDED_ISSUER_CIK_MISMATCH",
+            })
+            continue
+
         results.append({
             "accession_number": accession,
             "filing_date": filing.get("filing_date"),
@@ -173,11 +198,14 @@ def main() -> int:
         "failure_count": sum(item["return_code"] != 0 for item in results),
         "unsupported_count": len(unsupported_source_format),
         "unsupported_source_format": unsupported_source_format,
+        "issuer_mismatch_exclusion_count": len(issuer_mismatch_exclusions),
+        "issuer_mismatch_exclusions": issuer_mismatch_exclusions,
         "results": results,
     }
     summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(f"Batch summary -> {summary_path}")
     print(f"Successes: {summary['success_count']}; failures: {summary['failure_count']}")
+    print(f"Issuer mismatch exclusions: {summary['issuer_mismatch_exclusion_count']}")
     return 1 if summary["failure_count"] else 0
 
 
