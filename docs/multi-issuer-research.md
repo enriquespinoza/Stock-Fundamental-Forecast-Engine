@@ -19,12 +19,18 @@ and build a fresh candidate event dataset after all selected Form 4 histories
 are present. Market-price data must include each issuer symbol plus the chosen
 benchmark, such as SPY.
 
+The initial frozen 32-issuer cross-sector pilot is listed in
+[`configs/universe/pilot_sp500_2026-10-07.csv`](../configs/universe/pilot_sp500_2026-10-07.csv).
+Its scope and survivorship warning are in the paired manifest and
+[`docs/universe-expansion.md`](universe-expansion.md). This snapshot supports
+pipeline and coverage validation only.
+
 ## Join financial facts and build the research table
 
 ```bash
 python scripts/build_form4_events.py
-python scripts/join_form4_financial_universe.py \
-  --events "data/processed/form4_events/<event-run>/candidate_transactions.csv" \
+python scripts/join_form4_financial_universe.py \\
+  --events "data/processed/form4_events/<event-run>/candidate_transactions.csv" \\
   --financials-root data/normalized/financials
 ```
 
