@@ -28,6 +28,22 @@ feature-list hash, training-data manifest, estimator configuration, TimesFM
 checkpoint revision/hash, and freeze timestamp. A change to any of these starts
 a new experiment version; do not replace forecasts from the active version.
 
+### Prospective calibration and freeze
+
+Because the TimesFM checkpoint's pretraining cutoff is unknown, do not train the
+augmented model on TimesFM forecasts generated for older historical events. Pin
+the checkpoint to an immutable 40-character Hugging Face revision and start a
+prospective calibration capture. The paired-model trainer accepts only events
+available after that capture start, and only target closes observed before the
+explicit training cutoff. Freeze the paired estimators after enough outcomes
+have matured. The evaluation period begins after that freeze; calibration rows
+are never counted as evaluation results.
+
+This creates two separate clocks: a calibration period to fit both models, then
+a holdout shadow period for the predeclared comparison. If the calibration
+period has too few matured examples, keep collecting and do not begin the
+evaluation clock.
+
 ## Prospective cohort and event capture
 
 - Freeze the pilot symbols before the first scored event. Keep the cohort fixed
@@ -68,10 +84,54 @@ a new experiment version; do not replace forecasts from the active version.
 
 ## Readiness and decision gate
 
-The prospective clock starts only after both model artifacts, preprocessing,
-feature definitions, cohort, and code commit are frozen and hashed. The current
-historical dataset does not satisfy this readiness gate because the final paired
-SEC-only and SEC-plus-TimesFM prediction artifacts have not yet been created.
+The prospective evaluation clock starts only after prospective calibration is
+complete and both model artifacts, preprocessing, feature definitions, cohort,
+TimesFM checkpoint revision, and code commit are frozen and hashed. The current
+historical dataset does not satisfy this readiness gate: its TimesFM checkpoint
+revision was not pinned and its feature rows were generated retrospectively.
+Begin with a new pinned-checkpoint capture before training the pair.
+
+## Commands
+
+Install the optional model-training dependency with
+python -m pip install -e ".[research]". Generate TimesFM features using a
+full immutable checkpoint revision, then align actual returns to the forecast
+origins. After the prospective calibration window has matured, train:
+
+~~~sh
+python scripts/train_shadow_models.py \
+  --research-dataset PATH_TO_JOINED_TIMESFM_RESEARCH_CSV \
+  --actual-returns PATH_TO_MATCHED_ACTUAL_RETURNS_CSV \
+  --timesfm-feature-start-utc 2026-10-22T00:00:00Z \
+  --training-cutoff-utc 2027-10-22T00:00:00Z \
+  --code-revision FULL_40_CHARACTER_GIT_COMMIT
+~~~
+
+The emitted model directory contains the frozen estimator bundle, configuration,
+input hashes, feature schema hash, and training summary. Use it to record paired
+predictions from later events:
+
+~~~sh
+python scripts/build_shadow_predictions.py \
+  --research-dataset PATH_TO_NEW_JOINED_TIMESFM_RESEARCH_CSV \
+  --model-dir PATH_TO_FROZEN_MODEL_DIRECTORY
+~~~
+
+After outcomes mature, build matched return rows using the same TimesFM origin
+and score them:
+
+~~~sh
+python scripts/score_shadow_predictions.py \
+  --predictions PATH_TO_PAIRED_SHADOW_PREDICTIONS_CSV \
+  --actual-returns PATH_TO_MATCHED_ACTUAL_RETURNS_CSV \
+  --prices PATH_TO_ARCHIVED_PRICE_CSV \
+  --price-manifest PATH_TO_PRICE_MANIFEST_JSON
+~~~
+
+Prediction output is append-only by run and contains paired model values without
+outcome columns. The scorer verifies input hashes, model origins, event
+availability, forecast creation time, and target-close maturity; it reports
+paired loss changes and issuer-week cluster-bootstrap intervals.
 
 Keep the system in shadow mode through the full test. Consider a later research
 review only if the augmented model improves the predeclared primary loss against
