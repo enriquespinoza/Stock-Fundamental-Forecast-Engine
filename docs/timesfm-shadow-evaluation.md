@@ -97,10 +97,10 @@ Begin with a new pinned-checkpoint capture before training the pair.
 
 ## Commands
 
-Install the optional model-training dependency with
-python -m pip install -e ".[research]". Generate TimesFM features using a
-full immutable checkpoint revision via the feature builder's
---checkpoint-revision option, then align actual returns to the forecast origins.
+Set up the dedicated TimesFM environment using
+[the security instructions](timesfm-security.md). Generate TimesFM features
+using a full immutable checkpoint revision via the feature builder's required
+`--checkpoint-revision` option, then align actual returns to the forecast origins.
 After the prospective calibration window has matured, train:
 
 ~~~sh
