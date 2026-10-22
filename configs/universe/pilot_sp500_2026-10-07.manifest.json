@@ -1,0 +1,47 @@
+{
+  "schema_version": "stock-analyzer-universe-manifest-v1",
+  "universe_id": "sp500-cross-sector-pilot-2026-10-07",
+  "snapshot_date": "2026-10-07",
+  "member_count": 32,
+  "sector_count": 9,
+  "selection": {
+    "rule": "32 S&P 500 snapshot securities across 9 nonfinancial GICS sectors; retain AAPL and MSFT baseline; exclude Financials and Real Estate pending separate accounting/security mappings.",
+    "sectors": [
+      "Communication Services",
+      "Consumer Discretionary",
+      "Consumer Staples",
+      "Energy",
+      "Health Care",
+      "Industrials",
+      "Information Technology",
+      "Materials",
+      "Utilities"
+    ],
+    "use_scope": [
+      "SEC ingestion plumbing",
+      "normalization coverage validation",
+      "issuer/security mapping QA"
+    ],
+    "correlations_allowed": false,
+    "forecast_training_allowed": false,
+    "historical_performance_claims_allowed": false
+  },
+  "membership_source": {
+    "repository": "enriquespinoza/Thinkorswim-Stock-Scanner-Engine",
+    "ref": "main",
+    "path": "data/universe/sp500_2026-10-07.csv",
+    "git_blob_sha": "aa1a46f38f24c8c21227f8a69262d4b3daf05ab8",
+    "limitation": "Frozen current-constituent snapshot only; source file identifies its upstream as datasets_sp500_wikipedia_mirror for these selected rows. It contains no historical membership intervals."
+  },
+  "issuer_mapping_source": {
+    "url": "https://www.sec.gov/files/company_tickers_exchange.json",
+    "snapshot_date": "2026-10-22",
+    "limitation": "Current ticker-to-CIK association only. The cohort CSV freezes these mappings; it does not reconstruct historical ticker/security identity changes."
+  },
+  "survivorship_bias": {
+    "status": "PRESENT",
+    "treatment": "Pilot only. Do not use this current-member cohort for historical correlation, forecast training, or investable-performance claims.",
+    "research_gate": "Before historical return research, acquire a point-in-time universe with effective membership intervals, persistent security identifiers, ticker changes, delisted securities, and delisting/corporate-action returns."
+  },
+  "cohort_csv": "configs/universe/pilot_sp500_2026-10-07.csv"
+}
