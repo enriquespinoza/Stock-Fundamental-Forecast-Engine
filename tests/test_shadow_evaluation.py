@@ -140,7 +140,6 @@ class ShadowEvaluationTests(unittest.TestCase):
 
     def test_scorer_uses_only_matured_outcomes_and_clusters_paired_errors(self):
         predictions_dir = self.root / "logged"
-        predictions_path = predictions_dir / "paired_shadow_predictions.csv"
         origins = [date(2024, 1, 1), date(2024, 1, 15)]
         predictions = []
         actuals = []
@@ -177,10 +176,16 @@ class ShadowEvaluationTests(unittest.TestCase):
                 **{f"actual_end_session_date_{h}s": (origin + timedelta(days=h)).isoformat()
                    for h in (1, 5, 20)},
             })
-        pred_manifest = manifested(
-            predictions_path, "paired-shadow-predictions-manifest-v1", predictions,
-            research_only=True,
-        )
+        prediction_paths = []
+        for index, prediction in enumerate(predictions):
+            path = predictions_dir / str(index) / "paired_shadow_predictions.csv"
+            manifested(
+                path, "paired-shadow-predictions-manifest-v1", [prediction],
+                research_only=True,
+                model_input={"sha256": "c" * 64, "model_id": "test-pair",
+                             "frozen_at_utc": "2024-01-01T00:00:00Z"},
+            )
+            prediction_paths.append(path)
         # Rename schema output correctly and retain the manifest hash check.
         price_path = self.root / "score-prices.csv"
         write_csv(price_path, price_rows)
@@ -198,7 +203,7 @@ class ShadowEvaluationTests(unittest.TestCase):
                          "observed_at_utc": "2024-03-15T00:00:00Z"},
         )
         result = score_shadow_predictions(
-            predictions_path, actual_path, price_path, price_manifest_path,
+            prediction_paths, actual_path, price_path, price_manifest_path,
             self.root / "scores", replicates=100, scored_at_utc="2024-01-10T00:00:00Z",
         )
         metrics = result["summary"]["metrics"]
@@ -207,6 +212,7 @@ class ShadowEvaluationTests(unittest.TestCase):
         self.assertEqual(result["summary"]["matured_status_counts"]["20s"]["OUTCOME_NOT_YET_MATURED"], 1)
         self.assertEqual(result["summary"]["paired_mae_delta_95pct_cluster_ci"]["1s"]["cluster_count"], 1)
         self.assertEqual(result["summary"]["predictions_created_after_score_time"], 1)
+        self.assertEqual(result["summary"]["prediction_run_count"], 2)
 
     @unittest.skipUnless(importlib.util.find_spec("sklearn"), "install the optional research extra")
     def test_training_uses_only_post_checkpoint_features_and_prediction_is_frozen_paired(self):
