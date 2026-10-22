@@ -50,7 +50,7 @@ def sec_archive_document_url(issuer_cik: str, accession_number: str, primary_doc
     """Build a safe SEC Archives URL for a primary filing document."""
     cik = str(issuer_cik).strip()
     accession = str(accession_number).strip()
-    document = str(primary_document).replace("\\\\", "/").strip("/")
+    document = str(primary_document).replace("\\", "/").strip("/")
     if not re.fullmatch(r"[0-9]{1,10}", cik) or int(cik) == 0:
         raise ValueError("Invalid issuer CIK for SEC archive URL")
     if not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession):
