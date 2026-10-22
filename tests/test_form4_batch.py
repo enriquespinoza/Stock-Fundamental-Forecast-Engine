@@ -145,7 +145,7 @@ class Form4BatchTests(unittest.TestCase):
                 "source_url": "https://www.sec.gov/example",
                 "primary_document": "xslF345X05/ownership.xml",
             }
-            ledger_path.write_text(json.dumps(row) + "\\n", encoding="utf-8")
+            ledger_path.write_text(json.dumps(row) + chr(10), encoding="utf-8")
             script = Path(__file__).resolve().parents[1] / "scripts" / "normalize_form4_batch.py"
             argv = [
                 str(script), "--ledger", str(ledger_path), "--limit", "10",
