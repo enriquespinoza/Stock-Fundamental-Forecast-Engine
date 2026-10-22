@@ -18,8 +18,8 @@ timesfm = [
     "timesfm[torch]==2.0.2",
 ]
 research = [
-    "scikit-learn>=1.4,<2",
-    "joblib>=1.2",
+    "scikit-learn==1.9.1",
+    "joblib==1.6.0",
 ]
 
 [tool.setuptools.packages.find]
