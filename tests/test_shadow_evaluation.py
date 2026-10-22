@@ -65,11 +65,28 @@ class ShadowEvaluationTests(unittest.TestCase):
             self.train_rows.append(event)
             actual = self._actual(event, event_date + timedelta(days=21), return_base=(i % 5 - 2) / 100)
             self.actual_rows.append(actual)
+        outcome_prices_path = self.root / "outcome-prices.csv"
+        prices = []
+        for i in range(121):
+            day = date(2024, 1, 1) + timedelta(days=i)
+            prices.append({"symbol": "AAA", "session_date": day.isoformat(),
+                           "close_at_utc": f"{day.isoformat()}T20:00:00Z",
+                           "adjusted_close": str(100 + i)})
+        write_csv(outcome_prices_path, prices)
+        outcome_price_manifest_path = self.root / "outcome-prices.manifest.json"
+        outcome_price_manifest_path.write_text(json.dumps({
+            "schema_version": "market-price-snapshot-manifest-v1",
+            "observed_at_utc": "2024-12-30T00:00:00Z",
+            "csv": {"sha256": digest(outcome_prices_path)},
+        }), encoding="utf-8")
         actual_manifest = manifested(
             self.actual_path, "timesfm-actual-return-evaluation-manifest-v1", self.actual_rows,
             timesfm_features_input={"path": str(self.tf_path), "sha256": digest(self.tf_path),
                                     "manifest_sha256": digest(self.tf_root / "manifest.json")},
-            price_input={"observed_at_utc": "2024-12-30T00:00:00Z"},
+            price_input={"path": str(outcome_prices_path), "sha256": digest(outcome_prices_path),
+                         "manifest_path": str(outcome_price_manifest_path),
+                         "manifest_sha256": digest(outcome_price_manifest_path),
+                         "observed_at_utc": "2024-12-30T00:00:00Z"},
         )
         research_manifest = manifested(
             self.research_path, "form4-event-research-timesfm-manifest-v1", self.train_rows,
@@ -87,6 +104,7 @@ class ShadowEvaluationTests(unittest.TestCase):
         return {
             "event_id": event_id, "issuer_cik": "0000000001", "issuer_symbol": "AAA",
             "historical_available_after_utc": available.isoformat().replace("+00:00", "Z"),
+            "timesfm_forecast_created_at_utc": (available + timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
             "transaction_code": "S", "ownership_type": "D", "is_amendment": "false",
             "aff10b5one": "false", "shares": "100", "reported_gross_value": "1000",
             "reporting_owners_json": '[{"is_director":true,"is_officer":false,"is_ten_percent_owner":false}]',
