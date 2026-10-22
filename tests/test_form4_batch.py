@@ -133,6 +133,56 @@ class Form4BatchTests(unittest.TestCase):
             self.assertEqual(summary["selected_count"], 2)
             self.assertEqual(summary["unsupported_source_format"], [])
 
+    def test_issuer_mismatch_is_recorded_and_not_retried(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ledger_path = root / "filing_ledger.jsonl"
+            row = {
+                "accession_number": "0000000001-26-000001",
+                "form": "4",
+                "filing_date": "2026-03-04",
+                "issuer_cik": "0000093410",
+                "source_url": "https://www.sec.gov/example",
+                "primary_document": "xslF345X05/ownership.xml",
+            }
+            ledger_path.write_text(json.dumps(row) + "\\n", encoding="utf-8")
+            script = Path(__file__).resolve().parents[1] / "scripts" / "normalize_form4_batch.py"
+            argv = [
+                str(script), "--ledger", str(ledger_path), "--limit", "10",
+                "--start-date", "2010-01-01",
+                "--output-root", str(root / "normalized"),
+                "--summary-root", str(root / "summaries"),
+                "--user-agent", "Research Tool contact@example.com",
+            ]
+            mismatch = type("Completed", (), {
+                "stdout": "",
+                "stderr": (
+                    "ISSUER_CIK_MISMATCH: XML issuer CIK 0001789832 "
+                    "does not match ledger CIK 0000093410"
+                ),
+                "returncode": 1,
+            })()
+
+            with patch.object(sys, "argv", argv), \\
+                 patch("subprocess.run", return_value=mismatch) as run:
+                with self.assertRaises(SystemExit) as exit_result:
+                    runpy.run_path(str(script), run_name="__main__")
+                self.assertEqual(exit_result.exception.code, 0)
+
+            run.assert_called_once()
+            summary_path = next((root / "summaries").glob("*.json"))
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(summary["success_count"], 0)
+            self.assertEqual(summary["failure_count"], 0)
+            self.assertEqual(summary["issuer_mismatch_exclusion_count"], 1)
+            self.assertEqual(summary["issuer_mismatch_exclusions"][0]["xml_issuer_cik"], "0001789832")
+
+            with patch.object(sys, "argv", argv), patch("subprocess.run") as retried:
+                with self.assertRaises(SystemExit) as exit_result:
+                    runpy.run_path(str(script), run_name="__main__")
+                self.assertEqual(exit_result.exception.code, 0)
+            retried.assert_not_called()
+
     def test_invalid_start_date_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
