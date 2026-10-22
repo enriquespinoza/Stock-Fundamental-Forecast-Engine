@@ -11,7 +11,10 @@ from pathlib import Path
 from stock_analyzer.financials import normalize_companyfacts, select_as_of, aligned_cash_flow_features
 from stock_analyzer.form4 import parse_form4
 from stock_analyzer.ledger import parse_timestamp, utc_text
-from stock_analyzer.sec_client import SecClient, ownership_archive_url
+from stock_analyzer.sec_client import (
+    SecClient, UnsupportedSourceFormat, extract_ownership_document,
+    ownership_archive_url, ownership_submission_url,
+)
 
 
 def main():
@@ -57,10 +60,26 @@ def main():
         if args.download:
             url = ownership_archive_url(filing["issuer_cik"], args.accession,
                                         filing["primary_document"])
-            snapshot = SecClient(args.user_agent, args.cache_dir).fetch_xml(url, refresh=args.refresh)
-            raw, observed = snapshot.payload, snapshot.observed_at_utc
-            source = {"url": url, "path": str(snapshot.path), "sha256": snapshot.sha256}
-            filing["source_url"] = url
+            client = SecClient(args.user_agent, args.cache_dir)
+            try:
+                snapshot = client.fetch_xml(url, refresh=args.refresh)
+                raw, observed = snapshot.payload, snapshot.observed_at_utc
+                source = {"url": url, "path": str(snapshot.path), "sha256": snapshot.sha256}
+                filing["source_url"] = url
+            except UnsupportedSourceFormat:
+                submission_url = ownership_submission_url(filing["issuer_cik"], args.accession)
+                snapshot = client.fetch_text(submission_url, refresh=args.refresh)
+                raw = extract_ownership_document(snapshot.payload)
+                observed = snapshot.observed_at_utc
+                source = {
+                    "url": submission_url,
+                    "path": str(snapshot.path),
+                    "sha256": snapshot.sha256,
+                    "document_url": url,
+                    "document_sha256": hashlib.sha256(raw).hexdigest(),
+                    "extraction": "ownershipDocument from complete-submission text",
+                }
+                filing["source_url"] = submission_url
         else:
             if not args.xml_observed_at:
                 parser.error("--xml-observed-at is required with local --xml; download time cannot be inferred from file mtime")
