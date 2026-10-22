@@ -1,4 +1,5 @@
 .venv/
+.venv-timesfm/
 __pycache__/
 *.py[cod]
 *.egg-info/
