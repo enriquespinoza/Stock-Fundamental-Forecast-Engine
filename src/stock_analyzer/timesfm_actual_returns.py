@@ -163,7 +163,7 @@ def build_timesfm_actual_returns(timesfm_path: Path, prices_path: Path,
         raise ValueError("Outcome price snapshot predates the TimesFM feature price snapshot")
 
     required = {"event_id", "issuer_cik", "issuer_symbol", "event_available_at_utc",
-                "forecast_status", "forecast_generated_at_utc", "forecast_origin_session_date", "forecast_origin_close_at_utc",
+                "forecast_status", "forecast_origin_session_date", "forecast_origin_close_at_utc",
                 "forecast_origin_adjusted_close", *(f"forecast_return_{h}s" for h in HORIZONS)}
     missing = required - set(timesfm_columns)
     if missing:
@@ -176,12 +176,17 @@ def build_timesfm_actual_returns(timesfm_path: Path, prices_path: Path,
     for feature in features:
         symbol = (feature.get("issuer_symbol") or "").strip().upper()
         event_at = _time(feature["event_available_at_utc"])
+        generated_at = feature.get("forecast_generated_at_utc") or timesfm_manifest.get("built_at_utc")
+        if generated_at:
+            generated_at = _time(generated_at).isoformat().replace("+00:00", "Z")
+        if feature["forecast_status"] == "OK" and not generated_at:
+            raise ValueError("Successful TimesFM forecasts require a generation timestamp in the row or feature manifest")
         row = {
             "event_id": feature["event_id"], "issuer_cik": feature["issuer_cik"],
             "issuer_symbol": symbol, "event_available_at_utc": event_at.isoformat().replace("+00:00", "Z"),
             "primary_sample_eligible": str(event_at.year >= primary_start_year).lower(),
             "forecast_status": feature["forecast_status"],
-            "forecast_generated_at_utc": feature["forecast_generated_at_utc"],
+            "forecast_generated_at_utc": generated_at,
             "forecast_origin_session_date": feature["forecast_origin_session_date"],
             "forecast_origin_close_at_utc": feature["forecast_origin_close_at_utc"],
             "forecast_origin_adjusted_close": feature["forecast_origin_adjusted_close"],
