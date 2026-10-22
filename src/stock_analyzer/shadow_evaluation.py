@@ -702,6 +702,14 @@ def score_shadow_predictions(predictions_path: Path | list[Path], actual_returns
         joined.append(row)
     if not joined:
         raise ValueError("No prediction events have matching realized-return rows")
+    matured_20s_clusters = len({
+        (row["issuer_cik"], row["event_available_at_utc"])
+        for row in joined if row.get("status_20s") == "OK"
+    })
+    elapsed_days = (
+        max(0, (scored_at - min(_timestamp(row["forecast_created_at_utc"]) for row in predictions)).days)
+        if predictions else 0
+    )
     summary = {
         "schema_version": "paired-shadow-score-summary-v1",
         "prediction_count": len(predictions), "prediction_run_count": len(prediction_paths),
@@ -720,15 +728,11 @@ def score_shadow_predictions(predictions_path: Path | list[Path], actual_returns
         },
         "evaluation_progress": {
             "primary_horizons": ["5s", "20s"],
-            "matured_20s_event_availability_clusters": len({
-                (row["issuer_cik"], row["event_available_at_utc"])
-                for row in joined if row.get("status_20s") == "OK"
-            }),
+            "matured_20s_event_availability_clusters": matured_20s_clusters,
             "minimum_duration_days": 365,
             "minimum_20s_clusters": 300,
-            "elapsed_days_since_first_logged_prediction": (
-                max(0, (scored_at - min(_timestamp(row["forecast_created_at_utc"]) for row in predictions)).days)
-                if predictions else 0),
+            "elapsed_days_since_first_logged_prediction": elapsed_days,
+            "minimum_gate_met": elapsed_days >= 365 and matured_20s_clusters >= 300,
         },
         "score_as_of_utc": _stamp(scored_at_utc),
         "price_snapshot_observed_at_utc": price_manifest.get("observed_at_utc"),
