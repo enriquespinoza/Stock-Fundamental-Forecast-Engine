@@ -163,8 +163,10 @@ class Form4BatchTests(unittest.TestCase):
                 "returncode": 1,
             })()
 
-            with patch.object(sys, "argv", argv), \\
-                 patch("subprocess.run", return_value=mismatch) as run:
+            with (
+                patch.object(sys, "argv", argv),
+                patch("subprocess.run", return_value=mismatch) as run,
+            ):
                 with self.assertRaises(SystemExit) as exit_result:
                     runpy.run_path(str(script), run_name="__main__")
                 self.assertEqual(exit_result.exception.code, 0)
