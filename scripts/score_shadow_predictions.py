@@ -9,7 +9,8 @@ from stock_analyzer.shadow_evaluation import score_shadow_predictions
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--predictions", type=Path, required=True)
+    parser.add_argument("--predictions", type=Path, nargs="+", required=True,
+                        help="One or more immutable prediction CSVs from the same frozen model pair")
     parser.add_argument("--actual-returns", type=Path, required=True)
     parser.add_argument("--prices", type=Path, required=True)
     parser.add_argument("--price-manifest", type=Path, required=True)
