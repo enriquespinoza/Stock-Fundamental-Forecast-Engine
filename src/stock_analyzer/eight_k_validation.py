@@ -129,6 +129,10 @@ def validate_8k_run(normalized_path: Path, output_root: Path, *, built_at_utc: s
         "schema_version": "8k-validation-run-v1",
         "built_at_utc": built_at_utc,
         "accession_number": doc["accession_number"],
+        "normalized_path": str(normalized_path),
+        "normalized_sha256": _sha(normalized_raw),
+        "index_manifest_sha256": _sha(manifest_raw),
+        "source_path": str(source_path),
         "source_sha256": source_sha,
         "source_reference_count": len(matches),
         "indexed_item_counts": dict(sorted(indexed_counts.items())),
@@ -136,7 +140,9 @@ def validate_8k_run(normalized_path: Path, output_root: Path, *, built_at_utc: s
         "item_reference_counts_match_source": reference_match,
         "manual_review_status": "PENDING",
         "references_csv": str(references_path),
+        "references_csv_sha256": _sha(references_path.read_bytes()),
         "features_json": str(feature_path),
+        "features_json_sha256": _sha(feature_path.read_bytes()),
         "research_only": True,
     }
     (output_root / "summary.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
