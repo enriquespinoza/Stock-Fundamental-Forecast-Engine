@@ -15,7 +15,8 @@ def main() -> int:
     parser.add_argument("--output-root", type=Path, default=Path("data/processed/timesfm_features"))
     parser.add_argument("--context-length", type=int, default=512)
     parser.add_argument("--min-context", type=int, default=32)
-    parser.add_argument("--checkpoint-revision", help="Optional immutable Hugging Face checkpoint revision")
+    parser.add_argument("--checkpoint-revision", required=True,
+                        help="Full 40-character immutable Hugging Face checkpoint commit SHA")
     args = parser.parse_args()
     try:
         result = build_timesfm_features(args.events, args.prices, args.price_manifest,
