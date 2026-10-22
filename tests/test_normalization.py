@@ -11,7 +11,10 @@ from unittest.mock import patch
 from stock_analyzer.financials import normalize_companyfacts, select_as_of, aligned_cash_flow_features
 from stock_analyzer.form4 import parse_form4
 from stock_analyzer.ledger import build_ledger
-from stock_analyzer.sec_client import SecClient, ownership_archive_url
+from stock_analyzer.sec_client import (
+    SecClient, Snapshot, UnsupportedSourceFormat, extract_ownership_document,
+    ownership_archive_url, ownership_submission_url,
+)
 
 
 def filing(form="4", amendment=False):
@@ -125,6 +128,17 @@ class OwnershipTests(unittest.TestCase):
         for path in ("../ownership.xml", "xsl/../../ownership.xml", "ownership.htm"):
             with self.assertRaises(ValueError):
                 ownership_archive_url("0000789019", "0000950170-24-020392", path)
+        self.assertEqual(ownership_submission_url("0001551152", "0001997505-26-000010"),
+                         "https://www.sec.gov/Archives/edgar/data/1551152/000199750526000010/0001997505-26-000010.txt")
+        for cik, accession in (("../1", "0000000001-24-000001"),
+                               ("1", "../bad")):
+            with self.assertRaises(ValueError):
+                ownership_submission_url(cik, accession)
+        embedded = b"SEC complete submission\n" + xml() + b"\nend"
+        self.assertEqual(extract_ownership_document(embedded), xml())
+        with self.assertRaises(ValueError):
+            extract_ownership_document(b"<html>no ownership XML</html>")
+
         with tempfile.TemporaryDirectory() as directory:
             calls = []
             def opener(request, timeout):
@@ -136,6 +150,12 @@ class OwnershipTests(unittest.TestCase):
             self.assertEqual(first.path.suffix, ".xml")
             self.assertTrue(client.fetch_xml(url).from_cache)
             self.assertEqual(len(calls), 1)
+            text_url = ownership_submission_url("1", "0000000001-26-000001")
+            with patch.object(client, "opener", side_effect=lambda request, timeout: calls.append(request) or BytesIO(b"submission")):
+                first_text = client.fetch_text(text_url)
+                self.assertEqual(first_text.payload, b"submission")
+                self.assertTrue(client.fetch_text(text_url).from_cache)
+            self.assertEqual(len(calls), 2)
             with self.assertRaises(ValueError):
                 client.fetch_xml("https://www.sec.gov/Archives/../../bad.xml")
 
@@ -231,6 +251,34 @@ class FinancialTests(unittest.TestCase):
                 self.assertEqual(json.loads(manifest.read_text())["forecast_status"], "NOT_IMPLEMENTED")
             result = json.loads(next((root / "output").glob("form4/*/normalized.json")).read_text())
             self.assertEqual(result["transactions"][0]["live_available_after_utc"], "2026-10-13T00:00:00Z")
+
+    def test_form4_cli_falls_back_to_complete_submission_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ledger_path = root / "ledger.jsonl"
+            row = {**filing(), "accession_number": "0000000001-26-000003"}
+            ledger_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            script = Path(__file__).resolve().parents[1] / "scripts" / "normalize_sec_data.py"
+            snapshot = Snapshot(
+                payload=b"complete submission\n" + xml() + b"\n",
+                source_url="https://www.sec.gov/Archives/edgar/data/1/000000000126000003/0000000001-26-000003.txt",
+                observed_at_utc="2026-10-13T00:00:00Z",
+                sha256=__import__("hashlib").sha256(b"complete submission\n" + xml() + b"\n").hexdigest(), path=root / "submission.txt", from_cache=False,
+            )
+            with patch.object(sys, "argv", [
+                str(script), "form4", "--ledger", str(ledger_path), "--accession",
+                row["accession_number"], "--download", "--user-agent",
+                "Research test@example.com", "--output-root", str(root / "output"),
+            ]), patch("stock_analyzer.sec_client.SecClient.fetch_xml",
+                     side_effect=UnsupportedSourceFormat("viewer response")), \
+                 patch("stock_analyzer.sec_client.SecClient.fetch_text", return_value=snapshot):
+                runpy.run_path(str(script), run_name="__main__")
+            manifest = json.loads(next((root / "output").glob("form4/*/manifest.json")).read_text())
+            self.assertEqual(manifest["source"]["sha256"], snapshot.sha256)
+            self.assertEqual(manifest["source"]["document_sha256"], __import__("hashlib").sha256(xml()).hexdigest())
+            self.assertEqual(manifest["source"]["extraction"], "ownershipDocument from complete-submission text")
+            normalized = json.loads(next((root / "output").glob("form4/*/normalized.json")).read_text())
+            self.assertEqual(normalized["filing"]["source_url"], snapshot.source_url)
 
 
 if __name__ == "__main__":
