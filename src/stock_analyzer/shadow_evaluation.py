@@ -216,6 +216,24 @@ def train_shadow_model_pair(research_path: Path, actual_returns_path: Path,
     prices_observed = _timestamp(actual_manifest.get("price_input", {}).get("observed_at_utc", ""))
     if prices_observed > cutoff:
         raise ValueError("Training cutoff precedes observation of the outcome price snapshot")
+    outcome_price_path = Path(actual_manifest.get("price_input", {}).get("path", ""))
+    outcome_price_raw, outcome_price_columns, outcome_price_rows = _read_csv(outcome_price_path)
+    if _sha(outcome_price_raw) != actual_manifest.get("price_input", {}).get("sha256"):
+        raise ValueError("Outcome price CSV hash differs from the actual-return manifest")
+    outcome_price_manifest_path = Path(actual_manifest.get("price_input", {}).get("manifest_path", ""))
+    outcome_price_manifest_raw = outcome_price_manifest_path.read_bytes()
+    if _sha(outcome_price_manifest_raw) != actual_manifest.get("price_input", {}).get("manifest_sha256"):
+        raise ValueError("Outcome price manifest hash differs from the actual-return manifest")
+    outcome_price_manifest = json.loads(outcome_price_manifest_raw.decode("utf-8"))
+    if (outcome_price_manifest.get("schema_version") != "market-price-snapshot-manifest-v1"
+            or outcome_price_manifest.get("csv", {}).get("sha256") != _sha(outcome_price_raw)):
+        raise ValueError("Outcome price snapshot manifest does not verify its CSV")
+    if tuple(outcome_price_columns) != ("symbol", "session_date", "close_at_utc", "adjusted_close"):
+        raise ValueError("Outcome price CSV has unexpected columns")
+    close_by_symbol_date = {
+        (row["symbol"].upper(), row["session_date"]): _timestamp(row["close_at_utc"])
+        for row in outcome_price_rows
+    }
     feature_input = actual_manifest.get("timesfm_features_input", {})
     feature_path = Path(feature_input.get("path", ""))
     feature_manifest_path = feature_path.parent / "manifest.json"
@@ -238,16 +256,30 @@ def train_shadow_model_pair(research_path: Path, actual_returns_path: Path,
             continue
         if event.get("timesfm_forecast_status") != "OK" or outcome.get("forecast_status") != "OK":
             continue
+        feature_created = _timestamp(event.get("timesfm_forecast_created_at_utc", ""))
+        if feature_created < event_time:
+            raise ValueError(f"TimesFM forecast timestamp precedes event availability for {event['event_id']}")
         eligible.append((event, outcome))
 
     fitted = {"baseline": {}, "augmented": {}}
     horizon_summary = {}
     for horizon in HORIZONS:
         suffix = f"{horizon}s"
-        rows = [(event, outcome) for event, outcome in eligible
-                if outcome.get(f"status_{suffix}") == "OK"
-                and outcome.get(f"actual_return_{suffix}") not in (None, "")
-                and outcome.get(f"actual_end_session_date_{suffix}", "") < cutoff.date().isoformat()]
+        rows = []
+        excluded_late_features = 0
+        for event, outcome in eligible:
+            end_date = outcome.get(f"actual_end_session_date_{suffix}", "")
+            if (outcome.get(f"status_{suffix}") != "OK"
+                    or outcome.get(f"actual_return_{suffix}") in (None, "")
+                    or end_date >= cutoff.date().isoformat()):
+                continue
+            close_at = close_by_symbol_date.get((event["issuer_symbol"].upper(), end_date))
+            if close_at is None:
+                raise ValueError(f"Missing target close for training event {event['event_id']} {suffix}")
+            if _timestamp(event["timesfm_forecast_created_at_utc"]) >= close_at:
+                excluded_late_features += 1
+                continue
+            rows.append((event, outcome))
         if len(rows) < minimum_training_rows:
             raise ValueError(f"Only {len(rows)} matured training rows for {suffix}; need {minimum_training_rows}")
         targets = np.asarray([float(outcome[f"actual_return_{suffix}"]) for _, outcome in rows])
@@ -262,6 +294,7 @@ def train_shadow_model_pair(research_path: Path, actual_returns_path: Path,
             fitted[track][suffix] = model
         horizon_summary[suffix] = {
             "training_row_count": len(rows),
+            "excluded_features_created_after_target": excluded_late_features,
             "unique_issuer_availability_groups": len({
                 (event["issuer_cik"], event["historical_available_after_utc"]) for event, _ in rows
             }),
@@ -555,6 +588,8 @@ def score_shadow_predictions(predictions_path: Path, actual_returns_path: Path,
         raise ValueError("Unsupported paired prediction manifest schema")
     if prediction_manifest.get("output", {}).get("sha256") != _sha(predictions_path.read_bytes()):
         raise ValueError("Prediction CSV hash does not match its immutable manifest")
+    if prediction_manifest.get("output", {}).get("row_count") != len(predictions):
+        raise ValueError("Prediction CSV row count does not match its immutable manifest")
     _, actual_manifest, actuals = _manifested_csv(
         actual_returns_path, "timesfm-actual-return-evaluation-manifest-v1")
     actual_manifest_raw = (actual_returns_path.parent / "manifest.json").read_bytes()
