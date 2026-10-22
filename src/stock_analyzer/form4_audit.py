@@ -82,11 +82,13 @@ def audit_form4_history(ledger_path: Path, normalized_root: Path, *,
                 continue
             source = manifest.get("source", {})
             declared_source_hash = source.get("sha256")
+            declared_document_hash = source.get("document_sha256", declared_source_hash)
             checks = {
                 "normalized_hash_valid": bool(SHA256_RE.fullmatch(manifest.get("normalized_sha256", "")))
                     and manifest.get("normalized_sha256") == digest,
                 "source_hash_well_formed": bool(SHA256_RE.fullmatch(declared_source_hash or "")),
-                "source_hash_matches_document": declared_source_hash == filing.get("raw_sha256"),
+                "document_hash_well_formed": bool(SHA256_RE.fullmatch(declared_document_hash or "")),
+                "source_hash_matches_document": declared_document_hash == filing.get("raw_sha256"),
                 "ledger_hash_matches": manifest.get("ledger_sha256") == _sha256(ledger_raw),
             }
             raw_verified = None
