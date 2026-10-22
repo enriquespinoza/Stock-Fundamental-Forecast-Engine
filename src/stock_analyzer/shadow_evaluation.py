@@ -578,25 +578,56 @@ def _cluster_ci(rows: list[dict], horizon: int, *, replicates: int, seed: int) -
             "method": "issuer-week cluster bootstrap; resampled clusters preserve event multiplicity"}
 
 
-def score_shadow_predictions(predictions_path: Path, actual_returns_path: Path,
+def score_shadow_predictions(predictions_path: Path | list[Path], actual_returns_path: Path,
                              prices_path: Path, price_manifest_path: Path,
                              output_root: Path, *, replicates: int = 2000,
                              seed: int = 20261022, scored_at_utc: str | None = None) -> dict:
     """Score logged prospective forecasts only after their matching closes mature."""
     if replicates < 100:
         raise ValueError("Use at least 100 bootstrap replicates")
-    predictions_path, actual_returns_path, prices_path, price_manifest_path, output_root = map(
-        Path, (predictions_path, actual_returns_path, prices_path, price_manifest_path, output_root))
-    _, prediction_columns, predictions = _read_csv(predictions_path)
-    prediction_manifest_path = predictions_path.parent / "manifest.json"
-    prediction_manifest_raw = prediction_manifest_path.read_bytes()
-    prediction_manifest = json.loads(prediction_manifest_raw.decode("utf-8"))
-    if prediction_manifest.get("schema_version") != "paired-shadow-predictions-manifest-v1":
-        raise ValueError("Unsupported paired prediction manifest schema")
-    if prediction_manifest.get("output", {}).get("sha256") != _sha(predictions_path.read_bytes()):
-        raise ValueError("Prediction CSV hash does not match its immutable manifest")
-    if prediction_manifest.get("output", {}).get("row_count") != len(predictions):
-        raise ValueError("Prediction CSV row count does not match its immutable manifest")
+    if isinstance(predictions_path, (str, Path)):
+        prediction_paths = [Path(predictions_path)]
+    else:
+        prediction_paths = [Path(path) for path in predictions_path]
+    if not prediction_paths:
+        raise ValueError("Provide at least one paired prediction CSV")
+    actual_returns_path, prices_path, price_manifest_path, output_root = map(
+        Path, (actual_returns_path, prices_path, price_manifest_path, output_root))
+    predictions = []
+    prediction_inputs = []
+    common_model_identity = None
+    prediction_columns = None
+    global_ids = set()
+    for path in prediction_paths:
+        _, columns, rows = _read_csv(path)
+        manifest_path = path.parent / "manifest.json"
+        manifest_raw = manifest_path.read_bytes()
+        manifest = json.loads(manifest_raw.decode("utf-8"))
+        if manifest.get("schema_version") != "paired-shadow-predictions-manifest-v1":
+            raise ValueError(f"Unsupported paired prediction manifest schema: {manifest_path}")
+        if manifest.get("output", {}).get("sha256") != _sha(path.read_bytes()):
+            raise ValueError(f"Prediction CSV hash does not match its immutable manifest: {path}")
+        if manifest.get("output", {}).get("row_count") != len(rows):
+            raise ValueError(f"Prediction CSV row count does not match its immutable manifest: {path}")
+        if manifest.get("research_only") is not True:
+            raise ValueError(f"Prediction manifest is not marked research-only: {manifest_path}")
+        model = manifest.get("model_input", {})
+        identity = (model.get("sha256"), model.get("model_id"), model.get("frozen_at_utc"))
+        if common_model_identity is None:
+            common_model_identity = identity
+        elif identity != common_model_identity:
+            raise ValueError("Prediction runs use different frozen model artifacts")
+        if prediction_columns is not None and columns != prediction_columns:
+            raise ValueError("Prediction runs have different CSV schemas")
+        prediction_columns = columns
+        for row in rows:
+            event_id = row.get("event_id")
+            if not event_id or event_id in global_ids:
+                raise ValueError(f"Missing or duplicate event ID across prediction runs: {event_id!r}")
+            global_ids.add(event_id)
+        predictions.extend(rows)
+        prediction_inputs.append({"path": str(path), "sha256": _sha(path.read_bytes()),
+                                  "manifest_sha256": _sha(manifest_raw)})
     _, actual_manifest, actuals = _manifested_csv(
         actual_returns_path, "timesfm-actual-return-evaluation-manifest-v1")
     actual_manifest_raw = (actual_returns_path.parent / "manifest.json").read_bytes()
@@ -610,8 +641,6 @@ def score_shadow_predictions(predictions_path: Path, actual_returns_path: Path,
         raise ValueError("Price manifest differs from the snapshot used to build actual returns")
     if price_manifest.get("csv", {}).get("sha256") != _sha(price_raw):
         raise ValueError("Price CSV hash does not match its manifest")
-    if prediction_manifest.get("research_only") is not True:
-        raise ValueError("Prediction manifest is not marked research-only")
     if not predictions:
         raise ValueError("Prediction CSV has no rows")
     required = {"event_id", "issuer_cik", "issuer_symbol", "event_available_at_utc",
@@ -675,7 +704,8 @@ def score_shadow_predictions(predictions_path: Path, actual_returns_path: Path,
         raise ValueError("No prediction events have matching realized-return rows")
     summary = {
         "schema_version": "paired-shadow-score-summary-v1",
-        "prediction_count": len(predictions), "matched_outcome_count": len(joined),
+        "prediction_count": len(predictions), "prediction_run_count": len(prediction_paths),
+        "matched_outcome_count": len(joined),
         "predictions_created_after_score_time": not_yet_created_count,
         "matured_status_counts": {f"{h}s": {status: sum(row[f"status_{h}s"] == status for row in joined)
                                                for status in sorted({row[f"status_{h}s"] for row in joined})}
@@ -688,6 +718,18 @@ def score_shadow_predictions(predictions_path: Path, actual_returns_path: Path,
         "paired_mae_delta_95pct_cluster_ci": {
             f"{h}s": _cluster_ci(joined, h, replicates=replicates, seed=seed + h) for h in HORIZONS
         },
+        "evaluation_progress": {
+            "primary_horizons": ["5s", "20s"],
+            "matured_20s_event_availability_clusters": len({
+                (row["issuer_cik"], row["event_available_at_utc"])
+                for row in joined if row.get("status_20s") == "OK"
+            }),
+            "minimum_duration_days": 365,
+            "minimum_20s_clusters": 300,
+            "elapsed_days_since_first_logged_prediction": (
+                max(0, (scored_at - min(_timestamp(row["forecast_created_at_utc"]) for row in predictions)).days)
+                if predictions else 0),
+        },
         "score_as_of_utc": _stamp(scored_at_utc),
         "price_snapshot_observed_at_utc": price_manifest.get("observed_at_utc"),
         "forecast_status": "RESEARCH_ONLY_NO_ORDERS",
@@ -699,8 +741,7 @@ def score_shadow_predictions(predictions_path: Path, actual_returns_path: Path,
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     manifest = {
         "schema_version": "paired-shadow-score-manifest-v1", "built_at_utc": stamp,
-        "prediction_input": {"path": str(predictions_path), "sha256": _sha(predictions_path.read_bytes()),
-                             "manifest_sha256": _sha(prediction_manifest_raw)},
+        "prediction_inputs": prediction_inputs,
         "actual_returns_input": {"path": str(actual_returns_path), "sha256": _sha(actual_returns_path.read_bytes()),
                                  "manifest_sha256": _sha(actual_manifest_raw)},
         "price_input": {"path": str(prices_path), "sha256": _sha(price_raw),
