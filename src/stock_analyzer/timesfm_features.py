@@ -89,14 +89,16 @@ class TimesFM25Forecaster:
     """Lazy adapter around the upstream TimesFM 2.5 PyTorch inference API."""
 
     def __init__(self, *, context_length: int = 512, checkpoint_revision: str | None = None):
+        if not re.fullmatch(r"[0-9a-f]{40}", checkpoint_revision or ""):
+            raise ValueError("TimesFM inference requires a full 40-character immutable checkpoint revision")
         try:
             from timesfm import ForecastConfig, TimesFM_2p5_200M_torch
         except ImportError as error:
             raise RuntimeError(
                 "TimesFM is optional. Install it with: python -m pip install -e .[timesfm]"
             ) from error
-        kwargs = {"revision": checkpoint_revision} if checkpoint_revision else {}
-        self.model = TimesFM_2p5_200M_torch.from_pretrained(MODEL_ID, **kwargs)
+        self.model = TimesFM_2p5_200M_torch.from_pretrained(
+            MODEL_ID, revision=checkpoint_revision)
         self.model.compile(ForecastConfig(
             max_context=context_length,
             max_horizon=max(HORIZONS),
@@ -121,6 +123,8 @@ def build_timesfm_features(events_path: Path, prices_path: Path, price_manifest_
     the first close after event availability).
     """
     events_path, prices_path, price_manifest_path = map(Path, (events_path, prices_path, price_manifest_path))
+    if not re.fullmatch(r"[0-9a-f]{40}", checkpoint_revision or ""):
+        raise ValueError("TimesFM features require a full 40-character immutable checkpoint revision")
     if not 1 <= context_length <= 16384 or not 2 <= min_context <= context_length:
         raise ValueError("Require 2 <= min_context <= context_length <= 16384")
     event_manifest, price_manifest, event_raw, price_raw = _validate_manifests(
@@ -159,7 +163,7 @@ def build_timesfm_features(events_path: Path, prices_path: Path, price_manifest_
         known = [row for row in prices.get(symbol, []) if row["close_at"] < available]
         result = {"event_id": event_id, "issuer_cik": event.get("issuer_cik"),
                   "issuer_symbol": symbol, "event_available_at_utc": available.isoformat().replace("+00:00", "Z"),
-                  "forecast_status": None, "forecast_generated_at_utc": None, "forecast_origin_session_date": None,
+                  "forecast_status": None, "forecast_origin_session_date": None,
                   "forecast_origin_close_at_utc": None, "forecast_origin_adjusted_close": None,
                   "context_rows": len(known), "context_start_session_date": None,
                   "context_end_session_date": None, "model_id": model_id}
@@ -181,8 +185,6 @@ def build_timesfm_features(events_path: Path, prices_path: Path, price_manifest_
             if len(forecasts) < max(HORIZONS) or any(not math.isfinite(float(value)) or float(value) <= 0 for value in forecasts[:max(HORIZONS)]):
                 raise ValueError(f"Forecaster returned invalid or short path for {symbol}")
             cache[context_key] = forecasts
-        generated = _timestamp(built_at_utc) if built_at_utc else datetime.now(timezone.utc)
-        result["forecast_generated_at_utc"] = generated.isoformat(timespec="microseconds").replace("+00:00", "Z")
         result.update({"forecast_status": "OK", "forecast_origin_session_date": origin["session_date"],
                        "forecast_origin_close_at_utc": origin["close_at"].isoformat().replace("+00:00", "Z"),
                        "forecast_origin_adjusted_close": format(Decimal(str(origin["price"])), "f"),
@@ -224,7 +226,6 @@ def build_timesfm_features(events_path: Path, prices_path: Path, price_manifest_
                          "manifest_sha256": sha256(price_manifest_path.read_bytes()),
                          "observed_at_utc": price_manifest["observed_at_utc"]},
         "point_in_time_policy": "Use only price sessions with close_at_utc < event historical_available_after_utc",
-        "forecast_timestamp_policy": "Record per-event forecast generation time immediately after inference; a retrospective replay timestamp does not establish prospective availability.",
         "price_adjustment_caveat": "Historical adjusted closes are sourced from a snapshot acquired at input_prices.observed_at_utc; provider back-adjustments may use later corporate-action data.",
         "model": {"id": model_id, "checkpoint_revision": checkpoint_revision,
                   "pretraining_cutoff_known": False,
