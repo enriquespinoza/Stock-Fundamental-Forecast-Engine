@@ -164,15 +164,15 @@ class SecClient:
             if valid_host and kind == "xml":
                 valid_host = bool(re.fullmatch(
                     r"/Archives/edgar/data/[0-9]+/[0-9]{18}/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)*"
-                    r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\\.xml", parsed.path, flags=re.IGNORECASE))
+                    r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.xml", parsed.path, flags=re.IGNORECASE))
             elif valid_host and kind == "text":
                 valid_host = bool(re.fullmatch(
-                    r"/Archives/edgar/data/[0-9]+/[0-9]{18}/[0-9]{10}-[0-9]{2}-[0-9]{6}\\.txt",
+                    r"/Archives/edgar/data/[0-9]+/[0-9]{18}/[0-9]{10}-[0-9]{2}-[0-9]{6}\.txt",
                     parsed.path, flags=re.IGNORECASE))
             elif valid_host and kind == "document":
                 valid_host = bool(re.fullmatch(
                     r"/Archives/edgar/data/[0-9]+/[0-9]{18}/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)*"
-                    r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\\.(?:htm|html|xml|txt|xhtml)",
+                    r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(?:htm|html|xml|txt|xhtml)",
                     parsed.path, flags=re.IGNORECASE))
             else:
                 valid_host = False
@@ -193,7 +193,8 @@ class SecClient:
             return Snapshot(self._decode(raw, kind), url, metadata["observed_at_utc"], digest, path, True)
         for attempt in range(self.retries + 1):
             self._throttle()
-            accept = {"json": "application/json", "xml": "application/xml", "text": "text/plain",\n                      "document": "text/html,application/xhtml+xml,application/xml,text/plain"}[kind]
+            accept = {"json": "application/json", "xml": "application/xml", "text": "text/plain",
+                      "document": "text/html,application/xhtml+xml,application/xml,text/plain"}[kind]
             request = Request(url, headers={"User-Agent": self.user_agent, "Accept": accept})
             try:
                 with self.opener(request, timeout=self.timeout) as response:
