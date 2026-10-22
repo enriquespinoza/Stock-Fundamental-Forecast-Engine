@@ -12,9 +12,9 @@ def main() -> int:
     parser.add_argument("--timesfm-features", type=Path, required=True,
                         help="event_timesfm_features.csv produced by build_timesfm_forecast_features.py")
     parser.add_argument("--prices", type=Path, required=True,
-                        help="The exact price CSV recorded in the TimesFM feature manifest")
+                        help="Archived adjusted-close snapshot for outcomes; may be newer than the feature snapshot")
     parser.add_argument("--price-manifest", type=Path, required=True,
-                        help="Manifest for the exact price CSV used for TimesFM features")
+                        help="Manifest matching the outcome price CSV")
     parser.add_argument("--primary-start-year", type=int, default=2010,
                         help="First event-availability year in reported evaluation metrics (default: 2010)")
     parser.add_argument("--output-root", type=Path, default=Path("data/processed/timesfm_actual_returns"))
