@@ -70,6 +70,7 @@ class TimesFMFeatureTests(unittest.TestCase):
         self.assertTrue(manifest["research_only"])
         self.assertFalse(manifest["model"]["pretraining_cutoff_known"])
         self.assertEqual(manifest["model"]["checkpoint_revision"], CHECKPOINT_REVISION)
+        self.assertEqual(rows[0]["forecast_generated_at_utc"], manifest["built_at_utc"])
         self.assertEqual(manifest["output"]["sha256"], digest(result["csv_path"]))
 
     def test_insufficient_context_is_explicit_and_does_not_call_model(self):
@@ -80,6 +81,7 @@ class TimesFMFeatureTests(unittest.TestCase):
         with result["csv_path"].open(encoding="utf-8", newline="") as stream:
             rows = list(csv.DictReader(stream))
         self.assertEqual([row["forecast_status"] for row in rows], ["INSUFFICIENT_POINT_IN_TIME_CONTEXT"] * 3)
+        self.assertEqual([row["forecast_generated_at_utc"] for row in rows], [""] * 3)
         self.assertEqual(model.calls, [])
 
     def test_price_hash_mismatch_fails_closed(self):
