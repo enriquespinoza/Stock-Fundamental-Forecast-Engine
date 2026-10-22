@@ -46,6 +46,22 @@ def ownership_archive_url(issuer_cik: str, accession_number: str, primary_docume
             f"{accession.replace('-', '')}/{document}")
 
 
+def sec_archive_document_url(issuer_cik: str, accession_number: str, primary_document: str) -> str:
+    """Build a safe SEC Archives URL for a primary filing document."""
+    cik = str(issuer_cik).strip()
+    accession = str(accession_number).strip()
+    document = str(primary_document).replace("\\\\", "/").strip("/")
+    if not re.fullmatch(r"[0-9]{1,10}", cik) or int(cik) == 0:
+        raise ValueError("Invalid issuer CIK for SEC archive URL")
+    if not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession):
+        raise ValueError("Invalid accession for SEC archive URL")
+    if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*", document):
+        raise ValueError("Primary document must be a safe SEC archive path")
+    if Path(document).suffix.lower() not in (".htm", ".html", ".xml", ".txt", ".xhtml"):
+        raise ValueError("Unsupported SEC primary document extension")
+    return (f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/"
+            f"{accession.replace('-', '')}/{document}")
+
 def ownership_submission_url(issuer_cik: str, accession_number: str) -> str:
     """Build the complete-submission text URL for a Form 4 accession."""
     cik = str(issuer_cik).strip()
@@ -107,8 +123,16 @@ class SecClient:
     def fetch_text(self, url: str, *, refresh: bool = False) -> Snapshot:
         return self._fetch(url, refresh=refresh, kind="text")
 
+    def fetch_document(self, url: str, *, refresh: bool = False) -> Snapshot:
+        """Fetch and archive a bounded raw primary document from SEC Archives."""
+        return self._fetch(url, refresh=refresh, kind="document")
+
     @staticmethod
     def _decode(raw, kind):
+        if kind == "document":
+            if len(raw) > 50_000_000:
+                raise ValueError("SEC filing document exceeds the 50 MB limit")
+            return raw
         if kind == "text":
             if len(raw) > 50_000_000:
                 raise ValueError("SEC complete submission exceeds 50MB limit")
@@ -133,16 +157,25 @@ class SecClient:
 
     def _fetch(self, url: str, *, refresh: bool, kind: str) -> Snapshot:
         parsed = urlsplit(url)
-        valid_host = parsed.netloc == "data.sec.gov" if kind == "json" else (
-            parsed.netloc == "www.sec.gov" and (
-                re.fullmatch(
+        if kind == "json":
+            valid_host = parsed.netloc == "data.sec.gov"
+        else:
+            valid_host = parsed.netloc == "www.sec.gov"
+            if valid_host and kind == "xml":
+                valid_host = bool(re.fullmatch(
                     r"/Archives/edgar/data/[0-9]+/[0-9]{18}/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)*"
-                    r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.xml", parsed.path, flags=re.IGNORECASE)
-                if kind == "xml" else
-                re.fullmatch(r"/Archives/edgar/data/[0-9]+/[0-9]{18}/[0-9]{10}-[0-9]{2}-[0-9]{6}\.txt",
-                             parsed.path, flags=re.IGNORECASE)
-            )
-        )
+                    r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\\.xml", parsed.path, flags=re.IGNORECASE))
+            elif valid_host and kind == "text":
+                valid_host = bool(re.fullmatch(
+                    r"/Archives/edgar/data/[0-9]+/[0-9]{18}/[0-9]{10}-[0-9]{2}-[0-9]{6}\\.txt",
+                    parsed.path, flags=re.IGNORECASE))
+            elif valid_host and kind == "document":
+                valid_host = bool(re.fullmatch(
+                    r"/Archives/edgar/data/[0-9]+/[0-9]{18}/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)*"
+                    r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\\.(?:htm|html|xml|txt|xhtml)",
+                    parsed.path, flags=re.IGNORECASE))
+            else:
+                valid_host = False
         if parsed.scheme != "https" or not valid_host or parsed.query or parsed.fragment:
             raise ValueError("URL must be a permitted SEC data, raw ownership XML, or submission text URL")
         key = hashlib.sha256(url.encode()).hexdigest()
@@ -160,7 +193,7 @@ class SecClient:
             return Snapshot(self._decode(raw, kind), url, metadata["observed_at_utc"], digest, path, True)
         for attempt in range(self.retries + 1):
             self._throttle()
-            accept = {"json": "application/json", "xml": "application/xml", "text": "text/plain"}[kind]
+            accept = {"json": "application/json", "xml": "application/xml", "text": "text/plain",\n                      "document": "text/html,application/xhtml+xml,application/xml,text/plain"}[kind]
             request = Request(url, headers={"User-Agent": self.user_agent, "Accept": accept})
             try:
                 with self.opener(request, timeout=self.timeout) as response:
