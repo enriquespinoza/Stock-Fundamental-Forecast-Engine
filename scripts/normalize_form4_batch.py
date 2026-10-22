@@ -1,7 +1,7 @@
-"""Normalize recent, unprocessed Form 4 filings sequentially."""
+"""Normalize Form 4 filings sequentially, optionally from a filing date onward."""
 
 import argparse
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -23,11 +23,23 @@ def already_normalized(output_root: Path) -> set[str]:
     return accessions
 
 
+def filing_is_in_scope(row: dict, start_date: date | None) -> bool:
+    if start_date is None:
+        return True
+    try:
+        filing_date = date.fromisoformat(row.get("filing_date", ""))
+    except (TypeError, ValueError):
+        return False
+    return filing_date >= start_date
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ledger", type=Path, required=True)
     parser.add_argument("--limit", type=int, default=10,
                         help="Maximum number of newest unprocessed filings (default: 10)")
+    parser.add_argument("--start-date",
+                        help="Inclusive earliest filing date to include (YYYY-MM-DD)")
     parser.add_argument("--output-root", type=Path, default=Path("data/normalized"))
     parser.add_argument("--summary-root", type=Path,
                         default=Path("data/processed/form4_batch_summaries"))
@@ -39,6 +51,10 @@ def main() -> int:
 
     if args.limit < 1:
         parser.error("--limit must be at least 1")
+    try:
+        start_date = date.fromisoformat(args.start_date) if args.start_date else None
+    except ValueError:
+        parser.error("--start-date must be a valid YYYY-MM-DD date")
     if not args.user_agent:
         parser.error("Set SEC_USER_AGENT or provide --user-agent")
 
@@ -59,7 +75,8 @@ def main() -> int:
         if prior.get("ledger_path") != str(args.ledger):
             continue
         for item in prior.get("unsupported_source_format", []):
-            if (item.get("detected_response") and item.get("accession_number")
+            if (filing_is_in_scope(item, start_date)
+                    and item.get("detected_response") and item.get("accession_number")
                     and not args.retry_unsupported):
                 prior_unsupported[item["accession_number"]] = item
 
@@ -70,7 +87,8 @@ def main() -> int:
     for row in ledger:
         accession = row.get("accession_number")
         document = row.get("primary_document") or ""
-        if (row.get("form") not in ("4", "4/A") or not accession
+        if (not filing_is_in_scope(row, start_date)
+                or row.get("form") not in ("4", "4/A") or not accession
                 or accession in existing or accession in seen or accession in known_unsupported):
             continue
         seen.add(accession)
@@ -149,6 +167,7 @@ def main() -> int:
     summary = {
         "completed_at_utc": stamp,
         "ledger_path": str(args.ledger),
+        "start_date": args.start_date,
         "selected_count": len(selected),
         "success_count": sum(item["return_code"] == 0 for item in results),
         "failure_count": sum(item["return_code"] != 0 for item in results),
