@@ -108,6 +108,22 @@ def _metrics(rows: list[dict], horizon: int) -> dict:
     }
 
 
+def _unique_origin_rows(rows: list[dict]) -> list[dict]:
+    """Avoid counting multiple Form 4 rows with an identical forecast path twice."""
+    unique: dict[tuple[str, str], dict] = {}
+    comparable = ["forecast_status", *(f"forecast_return_{h}s" for h in HORIZONS),
+                  *(f"actual_return_{h}s" for h in HORIZONS), *(f"status_{h}s" for h in HORIZONS)]
+    for row in rows:
+        origin = row.get("forecast_origin_session_date")
+        key = (row["issuer_cik"], origin) if origin else (row["issuer_cik"], f"event:{row['event_id']}")
+        prior = unique.get(key)
+        if prior is None:
+            unique[key] = row
+        elif any(prior.get(field) != row.get(field) for field in comparable):
+            raise ValueError(f"Events sharing forecast origin {key} have conflicting forecast/return values")
+    return list(unique.values())
+
+
 def build_timesfm_actual_returns(timesfm_path: Path, prices_path: Path,
                                  price_manifest_path: Path, output_root: Path, *,
                                  primary_start_year: int = 2010,
@@ -246,7 +262,11 @@ def build_timesfm_actual_returns(timesfm_path: Path, prices_path: Path,
         "horizon_status_counts": {f"{h}s": {status: sum(row[f"status_{h}s"] == status for row in output)
                                             for status in sorted({row[f"status_{h}s"] for row in output})}
                                   for h in HORIZONS},
-        "primary_sample_metrics": {f"{h}s": _metrics(output, h) for h in HORIZONS},
+        "primary_sample_metrics_event_weighted": {f"{h}s": _metrics(output, h) for h in HORIZONS},
+        "unique_forecast_origin_count": len(_unique_origin_rows(output)),
+        "primary_sample_metrics_unique_origins": {
+            f"{h}s": _metrics(_unique_origin_rows(output), h) for h in HORIZONS
+        },
         "forecast_status": "RESEARCH_ONLY_NO_ORDERS",
     }
     summary_path = folder / "summary.json"
