@@ -16,7 +16,7 @@ Research engine for financial-statement, insider-transaction, market, and macro 
 - Point-in-time Form 4-to-financial joins with period provenance and future-fact exclusion.
 - A separate market-price label stage for 1-, 5-, and 20-session issuer and SPY returns. It uses actual close timestamps and immutable input hashes; it does not train a model.
 - A manifest-checked event-level research table that joins point-in-time financial facts and forward-return labels by event ID.
-- An optional TimesFM 2.5 research feature builder with strict pre-event price cutoffs; output is isolated from portfolio and execution systems.
+- An optional TimesFM 2.5 research feature builder with strict pre-event price cutoffs and a manifest-checked event-ID join; output is isolated from portfolio and execution systems.
 
 ## Setup and tests
 
