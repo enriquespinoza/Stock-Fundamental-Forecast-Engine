@@ -17,7 +17,10 @@ market-data = [
 timesfm = [
     "timesfm[torch]==2.0.2",
 ]
+research = [
+    "scikit-learn>=1.4,<2",
+    "joblib>=1.2",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
