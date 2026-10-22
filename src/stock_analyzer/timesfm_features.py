@@ -153,8 +153,6 @@ def build_timesfm_features(events_path: Path, prices_path: Path, price_manifest_
         raise ValueError("Duplicate event_id in input events")
 
     rows, cache = [], {}
-    built = _timestamp(built_at_utc) if built_at_utc else datetime.now(timezone.utc)
-    stamp = built.isoformat(timespec="microseconds").replace("+00:00", "Z")
     for event in events:
         event_id, symbol = event["event_id"], event["issuer_symbol"]
         if not symbol:
@@ -188,7 +186,7 @@ def build_timesfm_features(events_path: Path, prices_path: Path, price_manifest_
             if len(forecasts) < max(HORIZONS) or any(not math.isfinite(float(value)) or float(value) <= 0 for value in forecasts[:max(HORIZONS)]):
                 raise ValueError(f"Forecaster returned invalid or short path for {symbol}")
             cache[context_key] = forecasts
-        result.update({"forecast_status": "OK", "forecast_generated_at_utc": stamp,
+        result.update({"forecast_status": "OK",
                        "forecast_origin_session_date": origin["session_date"],
                        "forecast_origin_close_at_utc": origin["close_at"].isoformat().replace("+00:00", "Z"),
                        "forecast_origin_adjusted_close": format(Decimal(str(origin["price"])), "f"),
@@ -200,6 +198,11 @@ def build_timesfm_features(events_path: Path, prices_path: Path, price_manifest_
             result[f"forecast_return_{horizon}s"] = forecast_price / origin["price"] - 1.0
         rows.append(result)
 
+    built = _timestamp(built_at_utc) if built_at_utc else datetime.now(timezone.utc)
+    stamp = built.isoformat(timespec="microseconds").replace("+00:00", "Z")
+    for row in rows:
+        if row["forecast_status"] == "OK":
+            row["forecast_generated_at_utc"] = stamp
     folder = Path(output_root) / stamp.replace(":", "-")
     folder.mkdir(parents=True, exist_ok=False)
     output = folder / "event_timesfm_features.csv"
