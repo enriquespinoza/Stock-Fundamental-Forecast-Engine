@@ -32,6 +32,8 @@ def main() -> int:
     parser.add_argument("--summary-root", type=Path,
                         default=Path("data/processed/form4_batch_summaries"))
     parser.add_argument("--cache-dir", type=Path, default=Path("data/raw/sec"))
+    parser.add_argument("--retry-unsupported", action="store_true",
+                        help="Retry prior viewer responses using complete-submission text fallback")
     parser.add_argument("--user-agent", default=os.environ.get("SEC_USER_AGENT", ""))
     args = parser.parse_args()
 
@@ -57,7 +59,8 @@ def main() -> int:
         if prior.get("ledger_path") != str(args.ledger):
             continue
         for item in prior.get("unsupported_source_format", []):
-            if item.get("detected_response") and item.get("accession_number"):
+            if (item.get("detected_response") and item.get("accession_number")
+                    and not args.retry_unsupported):
                 prior_unsupported[item["accession_number"]] = item
 
     filings = []
