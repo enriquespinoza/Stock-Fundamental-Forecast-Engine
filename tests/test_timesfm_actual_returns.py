@@ -65,7 +65,8 @@ class TimesFMActualReturnTests(unittest.TestCase):
             "input_prices": {"path": str(self.price_path),
                              "sha256": digest(self.price_path),
                              "manifest_path": str(self.price_manifest_path),
-                             "manifest_sha256": digest(self.price_manifest_path)},
+                             "manifest_sha256": digest(self.price_manifest_path),
+                             "observed_at_utc": "2024-02-01T00:00:00Z"},
         }), encoding="utf-8")
         self.output_root = self.root / "out"
 
@@ -160,6 +161,56 @@ class TimesFMActualReturnTests(unittest.TestCase):
         }), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "strictly before event"):
             self.build()
+
+    def test_newer_outcome_snapshot_records_adjusted_price_revision(self):
+        later_prices = self.root / "later-prices.csv"
+        with self.price_path.open(encoding="utf-8", newline="") as source, \
+             later_prices.open("w", encoding="utf-8", newline="") as destination:
+            rows = list(csv.reader(source))
+            writer = csv.writer(destination, lineterminator="\n")
+            writer.writerow(rows[0])
+            for row in rows[1:]:
+                row[3] = str(float(row[3]) * 2)
+                writer.writerow(row)
+        later_manifest = self.root / "later-prices.manifest.json"
+        later_manifest.write_text(json.dumps({
+            "schema_version": "market-price-snapshot-manifest-v1",
+            "observed_at_utc": "2024-03-01T00:00:00Z",
+            "row_count": 46,
+            "csv": {"sha256": digest(later_prices)},
+        }), encoding="utf-8")
+        result = build_timesfm_actual_returns(
+            self.features_path, later_prices, later_manifest, self.output_root,
+            built_at_utc="2024-03-02T00:00:00Z",
+        )
+        with result["csv_path"].open(encoding="utf-8", newline="") as stream:
+            row = next(csv.DictReader(stream))
+        self.assertAlmostEqual(float(row["actual_return_1s"]), 104 / 103 - 1)
+        self.assertAlmostEqual(float(row["origin_price_revision_ratio"]), 2.0)
+        self.assertEqual(row["origin_adjusted_close_changed"], "true")
+        self.assertEqual(result["summary"]["origin_adjusted_close_revision_count"], 1)
+        self.assertNotEqual(result["manifest"]["feature_price_input"]["sha256"],
+                            result["manifest"]["price_input"]["sha256"])
+
+    def test_newer_snapshot_must_preserve_origin_close_timestamp(self):
+        later_prices = self.root / "bad-later-prices.csv"
+        with self.price_path.open(encoding="utf-8", newline="") as source:
+            rows = list(csv.reader(source))
+        rows[5][2] = "2024-01-03T20:01:00Z"
+        with later_prices.open("w", encoding="utf-8", newline="") as destination:
+            csv.writer(destination, lineterminator="\n").writerows(rows)
+        later_manifest = self.root / "bad-later-prices.manifest.json"
+        later_manifest.write_text(json.dumps({
+            "schema_version": "market-price-snapshot-manifest-v1",
+            "observed_at_utc": "2024-03-01T00:00:00Z",
+            "row_count": 46,
+            "csv": {"sha256": digest(later_prices)},
+        }), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "origin close timestamp mismatch"):
+            build_timesfm_actual_returns(
+                self.features_path, later_prices, later_manifest, self.output_root,
+                built_at_utc="2024-03-02T00:00:00Z",
+            )
 
 
 if __name__ == "__main__":
