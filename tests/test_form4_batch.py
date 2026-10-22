@@ -45,6 +45,19 @@ class Form4BatchTests(unittest.TestCase):
                     self.assertEqual(exit_result.exception.code, 0)
             retry.assert_not_called()
 
+            succeeded = type("Completed", (), {"stdout": "normalized", "stderr": "", "returncode": 0})()
+            with patch.object(sys, "argv", [str(script), *common, "--retry-unsupported"]):
+                with patch("subprocess.run", return_value=succeeded) as retry:
+                    with patch("time.sleep"):
+                        with self.assertRaises(SystemExit) as exit_result:
+                            runpy.run_path(str(script), run_name="__main__")
+                        self.assertEqual(exit_result.exception.code, 0)
+            retry.assert_called_once()
+            self.assertIn("--download", retry.call_args.args[0])
+            retried_summary = json.loads(sorted((root / "summaries").glob("*.json"))[-1].read_text(encoding="utf-8"))
+            self.assertEqual(retried_summary["selected_count"], 1)
+            self.assertEqual(retried_summary["success_count"], 1)
+
     def test_unsupported_legacy_html_is_reported_without_retry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
