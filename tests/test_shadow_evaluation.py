@@ -213,6 +213,7 @@ class ShadowEvaluationTests(unittest.TestCase):
         self.assertEqual(result["summary"]["paired_mae_delta_95pct_cluster_ci"]["1s"]["cluster_count"], 1)
         self.assertEqual(result["summary"]["predictions_created_after_score_time"], 1)
         self.assertEqual(result["summary"]["prediction_run_count"], 2)
+        self.assertFalse(result["summary"]["evaluation_progress"]["minimum_gate_met"])
 
     @unittest.skipUnless(importlib.util.find_spec("sklearn"), "install the optional research extra")
     def test_training_uses_only_post_checkpoint_features_and_prediction_is_frozen_paired(self):
