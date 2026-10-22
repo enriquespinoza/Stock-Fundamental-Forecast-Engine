@@ -74,6 +74,26 @@ class Form4EventTests(unittest.TestCase):
             self.assertEqual(rows[0]["aff10b5one"], "")
             self.assertEqual(result["summary"]["return_labels"], "NOT_CREATED")
 
+    def test_accepts_full_submission_hash_with_extracted_xml_document_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            normalized_root = root / "normalized"
+            accession = "0000000001-26-000003"
+            write_run(normalized_root, "run", accession, "4", [
+                transaction(f"{accession}:buy", "P", True),
+            ])
+            manifest_path = normalized_root / "form4" / "run" / "manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["source"] = {
+                "sha256": "b" * 64,
+                "document_sha256": "a" * 64,
+            }
+            manifest_path.write_text(json.dumps(manifest))
+
+            result = build_form4_event_dataset(normalized_root, root / "events",
+                                               built_at_utc="2026-10-20T00:00:00Z")
+            self.assertEqual(result["summary"]["candidate_event_count"], 1)
+
     def test_rejects_candidate_amendments_and_bad_manifest_hashes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
