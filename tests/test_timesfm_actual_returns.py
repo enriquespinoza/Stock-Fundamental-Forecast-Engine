@@ -86,8 +86,29 @@ class TimesFMActualReturnTests(unittest.TestCase):
         self.assertAlmostEqual(float(row["actual_return_5s"]), 108 / 103 - 1)
         self.assertEqual(row["actual_end_session_date_20s"], "2024-01-23")
         self.assertEqual(row["status_20s"], "OK")
-        self.assertEqual(result["summary"]["primary_sample_metrics"]["1s"]["matched_count"], 1)
-        self.assertIn("zero_return_baseline_mae", result["summary"]["primary_sample_metrics"]["1s"])
+        self.assertEqual(result["summary"]["primary_sample_metrics_unique_origins"]["1s"]["matched_count"], 1)
+        self.assertIn("zero_return_baseline_mae", result["summary"]["primary_sample_metrics_unique_origins"]["1s"])
+
+    def test_event_weighting_and_unique_origin_metrics_are_both_reported(self):
+        with self.features_path.open(encoding="utf-8", newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        duplicate = dict(rows[0], event_id="e3")
+        rows.append(duplicate)
+        with self.features_path.open("w", encoding="utf-8", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=rows[0].keys(), lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(rows)
+        self.feature_manifest_path.write_text(json.dumps({
+            "schema_version": "timesfm-event-features-manifest-v1",
+            "output": {"sha256": digest(self.features_path), "row_count": 3},
+            "input_prices": {"path": str(self.price_path), "sha256": digest(self.price_path),
+                             "manifest_path": str(self.price_manifest_path),
+                             "manifest_sha256": digest(self.price_manifest_path)},
+        }), encoding="utf-8")
+        result = self.build()
+        summary = result["summary"]
+        self.assertEqual(summary["primary_sample_metrics_event_weighted"]["1s"]["matched_count"], 2)
+        self.assertEqual(summary["primary_sample_metrics_unique_origins"]["1s"]["matched_count"], 1)
 
     def test_insufficient_future_prices_are_reported_per_horizon(self):
         with self.features_path.open(encoding="utf-8", newline="") as stream:
