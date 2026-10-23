@@ -15,7 +15,7 @@ class EightKEventFeatureTests(unittest.TestCase):
         self.source_path = root / "source.htm"
         raw = (b'<html><body>FORM 8-K. Item 2.02 Results of Operations and Financial Condition. '
                b'On October 1, Example Corp issued a press release for its first fiscal quarter results. '
-               b'The information is furnished pursuant to Item 2.02. Item 5.02 Departure of Directors or Certain Officers; '
+               b'The information in this report shall not be deemed \'filed\'. Item 5.02 Departure of Directors or Certain Officers; '
                b'Election of Directors; Appointment of Certain Officers; Compensatory Arrangements of Certain Officers. '
                b'Item 5.02(c). The board appointed Jane Doe as CFO. Item 9.01 Financial Statements and Exhibits.</body></html>')
         self.source_path.write_bytes(raw)
@@ -46,10 +46,17 @@ class EightKEventFeatureTests(unittest.TestCase):
         self.assertEqual(summary["event_count"], 2)
         rows = [json.loads(line) for line in (out / "8k_section_event_features.jsonl").read_text().splitlines()]
         by_item = {row["item"]: row for row in rows}
-        self.assertTrue(by_item["2.02"]["press_release_language_present"])
-        self.assertIn("first fiscal quarter", by_item["2.02"]["fiscal_period_mentions"])
-        self.assertTrue(by_item["5.02"]["appointment_language_present"])
-        self.assertEqual(by_item["5.02"]["subitems_observed"], "c")
+        self.assertTrue(by_item["2.02"]["body_press_release_mention_present"])
+        self.assertIn("first fiscal quarter", by_item["2.02"]["body_fiscal_period_mentions"])
+        self.assertTrue(by_item["2.02"]["not_deemed_filed_clause_present"])
+        self.assertFalse(by_item["2.02"]["body_furnished_word_mention_present"])
+        self.assertIn("Item 2.02 Results of Operations and Financial Condition", by_item["2.02"]["standard_heading_text"])
+        self.assertTrue(by_item["5.02"]["body_appointment_vocabulary_mention_present"])
+        self.assertFalse(by_item["5.02"]["body_departure_vocabulary_mention_present"])
+        self.assertFalse(by_item["5.02"]["body_compensation_vocabulary_mention_present"])
+        self.assertEqual(by_item["5.02"]["body_subitems_observed"], "c")
+        self.assertEqual(by_item["5.02"]["feature_status"], "TEXT_MENTIONS_ONLY_UNVERIFIED_EVENT_LABELS")
+        self.assertIn("Appointment of Certain Officers", by_item["5.02"]["standard_heading_text"])
         self.assertEqual(by_item["5.02"]["event_available_at_utc"], "2026-10-01T12:01:00Z")
         self.assertNotIn("9.01", by_item)
 
