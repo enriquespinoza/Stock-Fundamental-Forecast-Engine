@@ -31,4 +31,15 @@ For the 8-K sample, review each selected source filing, including filings in the
 
 For each sampled 10-Q/10-K fact, use `source_url` to inspect the filing and compare the selected XBRL tag, reported value, unit, and period. Record the observed values and review status in the sample CSV. This checks the normalized fact mapping for represented rows; it does not test whether the pipeline missed facts that are absent from the selected sample or unsupported by its current tag mapping.
 
+### Automate the consistency checks first
+
+The financial review queue can be checked against its archived Company Facts snapshots and normalized artifacts before manual source review:
+
+```sh
+python scripts/auto_validate_financial_fact_sample.py \
+  --sample "data/processed/manual_validation/<sample-run>/financial_fact_review_sample.csv"
+```
+
+The command writes a separate `financial_fact_automated_audit.csv`; it does not edit the original sample. For each row it verifies the snapshot and normalized-file hashes, matches accession/form/tag/unit/value/period (and fiscal metadata when present), and checks that the SEC Archive URL carries the row's issuer CIK and accession. `MATCHES_COMPANYFACTS_AND_NORMALIZED_OUTPUT` means the normalized record agrees with its archived Company Facts input. It does **not** independently confirm the filing's rendered statement, unit presentation, XBRL context, or whether the selected tag is the intended concept. It never changes `manual_review_status` to `CONFIRMED`; inspect the source filing for that final review, especially for amendments and duration-period facts.
+
 Do not edit source data or hashes. Preserve the generated sample and manifest unchanged; save completed annotations as a separate reviewed copy so the original selection remains auditable. Treat annotation disagreements as extraction/definition issues to resolve before any return correlation or forecast testing.
