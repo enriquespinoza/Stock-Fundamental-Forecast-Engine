@@ -47,23 +47,36 @@ def _section(text: str, start: int) -> tuple[str, int, int]:
     return text[start:end].strip(), start, end
 
 
-def _features(item: str, section: str) -> dict:
-    result = {"section_char_count": len(section)}
+def _heading_and_body(text: str, match: re.Match, section_end: int) -> tuple[str, str, int]:
+    """Split the standard item title from narrative text, preserving offsets."""
+    heading_end = text.find(".", match.end(), section_end)
+    if heading_end < 0:
+        heading_end = match.end() - 1
+    body_start = heading_end + 1
+    while body_start < section_end and text[body_start].isspace():
+        body_start += 1
+    return text[match.start():body_start].strip(), text[body_start:section_end].strip(), body_start
+
+
+def _features(item: str, body: str) -> dict:
+    result = {"section_body_char_count": len(body)}
     if item == "2.02":
         result.update({
-            "press_release_language_present": bool(re.search(r"press\s+release|earnings\s+release", section, re.I)),
-            "furnished_language_present": bool(re.search(r"\bfurnished\b", section, re.I)),
-            "fiscal_period_mentions": ";".join(sorted(set(re.findall(
-                r"\b(?:first|second|third|fourth)\s+fiscal\s+(?:quarter|year)\b", section, re.I)), key=str.lower)),
-            "exhibit_99_1_mentioned_in_section": bool(re.search(r"(?:exhibit|ex\.?)[\s_-]*99[\s_.-]*1\b", section, re.I)),
+            "body_press_release_mention_present": bool(re.search(r"press\s+release|earnings\s+release", body, re.I)),
+            "body_furnished_word_mention_present": bool(re.search(r"\bfurnished\b", body, re.I)),
+            "not_deemed_filed_clause_present": bool(re.search(
+                r"shall\s+not\s+be\s+deemed\s+[\"'“‘]?filed\b", body, re.I)),
+            "body_fiscal_period_mentions": ";".join(sorted(set(re.findall(
+                r"\b(?:first|second|third|fourth)\s+fiscal\s+(?:quarter|year)\b", body, re.I)), key=str.lower)),
+            "body_exhibit_99_1_mention_present": bool(re.search(r"(?:exhibit|ex\.?)[\s_-]*99[\s_.-]*1\b", body, re.I)),
         })
     else:
-        subitems = sorted(set(re.findall(r"\bitem\s+5\.02\s*\(([a-f])\)", section, re.I)))
+        subitems = sorted(set(re.findall(r"\bitem\s+5\.02\s*\(([a-f])\)", body, re.I)))
         result.update({
-            "subitems_observed": ";".join(subitems),
-            "departure_language_present": bool(re.search(r"\b(depart|resign|retir|terminat)\w*\b", section, re.I)),
-            "appointment_language_present": bool(re.search(r"\b(appoint|elect|name)\w*\b", section, re.I)),
-            "compensation_language_present": bool(re.search(r"\b(compensat|salary|bonus|equity award|severance)\w*\b", section, re.I)),
+            "body_subitems_observed": ";".join(subitems),
+            "body_departure_vocabulary_mention_present": bool(re.search(r"\b(depart|resign|retir|terminat)\w*\b", body, re.I)),
+            "body_appointment_vocabulary_mention_present": bool(re.search(r"\b(appoint|elect|name)\w*\b", body, re.I)),
+            "body_compensation_vocabulary_mention_present": bool(re.search(r"\b(compensat|salary|bonus|equity award|severance)\w*\b", body, re.I)),
         })
     return result
 
@@ -95,24 +108,28 @@ def extract_reviewed_8k_features(normalized_path: Path, review_csv: Path, output
         headings = list(heading_re.finditer(text))
         for index, match in enumerate(headings, start=1):
             section, start, end = _section(text, match.start())
+            heading_text, body_text, body_start = _heading_and_body(text, match, end)
             events.append({
-                "schema_version": "8k-section-event-features-v1",
+                "schema_version": "8k-section-event-features-v2",
                 "issuer_cik": doc["issuer_cik"], "accession_number": doc["accession_number"],
                 "form": doc["form"], "is_amendment": doc["form"] == "8-K/A",
                 "filing_date": doc.get("filing_date"),
                 "event_available_at_utc": doc.get("historical_available_after_utc"),
                 "historical_research_eligible": doc.get("historical_research_eligible", False),
                 "item": item, "section_ordinal": index, "section_start_offset": start,
-                "section_end_offset": end, "section_text_excerpt": section[:2_000],
+                "section_end_offset": end, "heading_end_offset": body_start,
+                "body_start_offset": body_start, "standard_heading_text": heading_text,
+                "section_body_text_excerpt": body_text[:2_000],
                 "source_sha256": source_sha, "review_csv_sha256": _sha(review_raw),
-                "feature_status": "EXPLICIT_TEXT_CUES_ONLY", **_features(item, section),
+                "feature_status": "TEXT_MENTIONS_ONLY_UNVERIFIED_EVENT_LABELS",
+                **_features(item, body_text),
             })
     output_dir.mkdir(parents=True, exist_ok=False)
     output = output_dir / "8k_section_event_features.jsonl"
     output.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in events), encoding="utf-8")
     output_raw = output.read_bytes()
     summary = {
-        "schema_version": "8k-section-event-feature-run-v1", "accession_number": doc["accession_number"],
+        "schema_version": "8k-section-event-feature-run-v2", "accession_number": doc["accession_number"],
         "source_sha256": source_sha, "normalized_sha256": _sha(normalized_raw),
         "review_csv_sha256": _sha(review_raw), "event_count": len(events),
         "item_counts": {item: sum(row["item"] == item for row in events) for item in TARGET_HEADINGS},
