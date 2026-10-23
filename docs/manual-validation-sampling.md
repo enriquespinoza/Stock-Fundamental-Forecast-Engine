@@ -42,4 +42,19 @@ python scripts/auto_validate_financial_fact_sample.py \
 
 The command writes a separate `financial_fact_automated_audit.csv`; it does not edit the original sample. For each row it verifies the snapshot and normalized-file hashes, matches accession/form/tag/unit/value/period (and fiscal metadata when present), and checks that the SEC Archive URL carries the row's issuer CIK and accession. `MATCHES_COMPANYFACTS_AND_NORMALIZED_OUTPUT` means the normalized record agrees with its archived Company Facts input. It does **not** independently confirm the filing's rendered statement, unit presentation, XBRL context, or whether the selected tag is the intended concept. It never changes `manual_review_status` to `CONFIRMED`; inspect the source filing for that final review, especially for amendments and duration-period facts.
 
+After checking a row against the SEC filing, record the observation in a separate reviewed copy with `scripts/record_financial_fact_review.py`. The command requires `--source-checked`, writes `financial_fact_review_sample_reviewed.csv` by default, and refuses to overwrite the original sample. A `CONFIRMED` entry is accepted only when the entered tag, normalized value, unit, and period match the sampled fact. For example:
+
+```sh
+python scripts/record_financial_fact_review.py \
+  --sample "data/processed/manual_validation/<sample-run>/financial_fact_review_sample.csv" \
+  --accession "0000200406-17-000006" \
+  --metric assets --tag Assets --period-end 2017-01-01 \
+  --observed-tag Assets --observed-value 141208000000 --observed-unit USD \
+  --observed-period-end 2017-01-01 \
+  --review-notes "Matched balance sheet; filing reports $141,208 million; normalized to USD." \
+  --source-checked
+```
+
+Use the actual value and period checked for each filing. The command records a human attestation; it does not inspect or verify the source filing itself. Run it again with the same `--output` path to add subsequent manually reviewed rows to that reviewed copy.
+
 Do not edit source data or hashes. Preserve the generated sample and manifest unchanged; save completed annotations as a separate reviewed copy so the original selection remains auditable. Treat annotation disagreements as extraction/definition issues to resolve before any return correlation or forecast testing.
