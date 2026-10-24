@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import hashlib
 from io import BytesIO
 import json
 from pathlib import Path
@@ -61,6 +62,51 @@ class LedgerTests(unittest.TestCase):
     def test_issuer_mismatch_fails(self):
         with self.assertRaises(ValueError):
             self.ledger({"cik": 2, "filings": {"recent": page()}})
+
+    def test_primary_document_subdirectories_keep_provenance(self):
+        for document in ("report.htm", "xslF345X06/form4.xml",
+                         "xslF345X05/wk-form4_123.xml",
+                         "filings/exhibits/exhibit-99.1.htm", "report..xml"):
+            with self.subTest(document=document):
+                payload = page()
+                payload["primaryDocument"] = [document]
+                row, = self.ledger(payload)
+                self.assertEqual(row["primary_document"], document)
+                self.assertEqual(row["source_url"],
+                                 "https://www.sec.gov/Archives/edgar/data/1/000000000126000001/" + document)
+
+    def test_empty_primary_document_has_no_source_url(self):
+        payload = page()
+        payload["primaryDocument"] = [""]
+        row, = self.ledger(payload)
+        self.assertEqual(row["primary_document"], "")
+        self.assertIsNone(row["source_url"])
+
+    def test_primary_document_rejects_unsafe_paths(self):
+        for document in (".", "..", "../form4.xml", "./form4.xml",
+                         "xslF345X06/../form4.xml", "xslF345X06/./form4.xml",
+                         "form4.xml/..", "form4.xml/.", "/form4.xml",
+                         "//example.com/form4.xml", "https://example.com/form4.xml",
+                         "C:/form4.xml", "xslF345X06//form4.xml", "xslF345X06/",
+                         r"xslF345X06\form4.xml", r"..\form4.xml",
+                         "%2e%2e/form4.xml", "xslF345X06/%2e%2e/form4.xml",
+                         "xslF345X06%2fform4.xml", "%252e%252e/form4.xml",
+                         "xslF345X06/form4.xml?download=1", "xslF345X06/form4.xml#part",
+                         " form4.xml", "form4.xml\n", "xslF345X06/\tform4.xml",
+                         "form4.xml\x00", "xslF345X06/\uff0e\uff0e/form4.xml"):
+            with self.subTest(document=document):
+                payload = page()
+                payload["primaryDocument"] = [document]
+                with self.assertRaisesRegex(ValueError, "Invalid primary document"):
+                    self.ledger(payload)
+
+    def test_primary_document_requires_string(self):
+        for document in (None, 1, b"form4.xml", [], {}):
+            with self.subTest(document=document):
+                payload = page()
+                payload["primaryDocument"] = [document]
+                with self.assertRaisesRegex(ValueError, "Invalid primary document"):
+                    self.ledger(payload)
 
     def test_timezone_and_identifiers(self):
         self.assertEqual(normalize_cik("320193"), "0000320193")
@@ -162,7 +208,8 @@ class IngestionTests(unittest.TestCase):
             root = Path(directory)
             primary = {"cik": 1, "filings": {"recent": page(), "files": [
                 {"name": "CIK0000000001-submissions-001.json"}]}}
-            historical = page(None, "0000000001-25-000001", "10-K")
+            historical = page(None, "0000000001-25-000001", "4")
+            historical["primaryDocument"] = ["xslF345X06/form4.xml"]
             responses = iter([primary, historical, {"cik": 1, "facts": {}}])
             real_client = SecClient("StockResearch test@example.com", root / "raw" / "sec",
                 opener=lambda request, timeout: BytesIO(json.dumps(next(responses)).encode()),
@@ -178,6 +225,11 @@ class IngestionTests(unittest.TestCase):
             self.assertEqual(len(rows), 2)
             self.assertEqual(len(manifest["sources"]), 3)
             self.assertEqual(manifest["history_scope"], "all_declared_pages")
+            self.assertEqual(manifest["ledger_sha256"], hashlib.sha256(ledger_path.read_bytes()).hexdigest())
+            insider = next(row for row in rows if row["form"] == "4")
+            self.assertEqual(insider["primary_document"], "xslF345X06/form4.xml")
+            self.assertEqual(insider["source_url"],
+                             "https://www.sec.gov/Archives/edgar/data/1/000000000125000001/xslF345X06/form4.xml")
             current = next(row for row in rows if row["form"] == "10-Q")
             self.assertEqual(current["live_available_after_utc"], "2026-10-12T12:00:00Z")
             self.assertEqual(len(eligible_as_of(rows, "2026-10-12T12:00:00Z")), 1)
