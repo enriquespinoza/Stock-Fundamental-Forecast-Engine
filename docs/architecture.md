@@ -4,13 +4,13 @@ Prepared October 12, 2026. Status: architecture and research specification; no m
 
 ## Purpose and responsibility
 
-Build a standalone research engine that joins SEC EDGAR financial disclosures and insider transactions with market and macroeconomic data. Estimate forward stock total returns and benchmark-relative returns, quantify uncertainty, and explain the evidence available before an execution decision.
+Build a standalone research engine that joins SEC EDGAR financial disclosures and insider transactions with market-price data and carefully mapped issuer/industry context. Estimate forward stock total returns and benchmark-relative returns, quantify uncertainty, and explain the evidence available before an execution decision. Macroeconomic indicators and interest-rate analysis are handled by the separate TMF Predictive Analytics engine and are out of scope here.
 
 Suggested repository: `Stock-Fundamental-Forecast-Engine`.
 
 The scanner identifies candidates. The optimizer proposes allocations. This engine evaluates the proposed holdings and current positions before execution, in tandem with TMF Predictive Analytics. If forecasts change expected returns or identify a risk gate, the orchestrator requests a new optimizer pass. Forecasts do not directly modify weights or authorize orders.
 
-TMF remains a specialized Treasury/ETF model. Corporate accounting and corporate insider features do not apply to TMF in the same way as operating companies. Shared macro features must retain provenance so a later ensemble does not count the same evidence twice.
+TMF remains the specialized rates and macro model. Corporate accounting and corporate insider features do not apply to TMF in the same way as operating companies. This stock engine does not ingest macroeconomic indicators or yield-curve features.
 
 ## Integration
 
@@ -35,7 +35,7 @@ Primary research target: 63 trading-session total return and sector-relative tot
 | Forms 3 / 4 / 5; prioritize Form 4 XML | Purchase and sale value, distinct buyer count, insider role, change in ownership, clustered buying, derivative activity | Separate P/S transactions from awards, exercises, gifts, and tax withholding; preserve plan flags, footnotes, amendments, and ownership type |
 | 8-K plus exhibits | Earnings releases, financing, management changes, disclosed material events | Track public availability separately from report period; text-derived claims must cite filing passages |
 | Price, dividends, splits, benchmark and sector series | Momentum, volatility, drawdown, liquidity, valuation denominators, total-return labels | Keep raw and adjusted series separate; account for delistings and corporate actions |
-| Treasury and other macro series | Rate changes, curve shape, regime interactions | Respect release timestamps and historical vintages; link shared features to TMF provenance |
+| Sector-specific context (only when issuer exposure is documented) | Relevant commodity or regulated-subsidiary context | Use source-specific release/observation times and provenance; do not treat an industry series as an issuer's realized price or result |
 
 Later research candidates: 13F holdings, Schedule 13D/G, buybacks, and filing-text changes. Institutional filings are delayed disclosures and must not be interpreted as contemporaneous trading activity. News, estimates, and earnings-call transcripts require separate coverage, licensing, and timestamp checks.
 
@@ -55,7 +55,7 @@ Missing data is unknown, not zero. Apply explicit coverage gates. All preprocess
 
 Start with feature diagnostics: rank and linear associations with future sector-relative returns, effect size, sample size, sector/regime stability, and incremental contribution after momentum and market controls. Treat these as hypotheses rather than trading rules. Predeclare feature families and account for multiple comparisons.
 
-Compare a zero-excess-return baseline and a price-only model with: financial-only; insider-only; financial plus insider; and combined price, fundamental, insider, and macro models. This isolates whether SEC features add information already captured in price or rates.
+Compare a zero-excess-return baseline and a price-only model with: financial-only; insider-only; financial plus insider; and combined price, fundamental, and insider models. This isolates whether SEC features add information already captured in price data. Rates and macroeconomic indicators remain in the separate TMF research track.
 
 Begin with regularized regression and a simple probabilistic direction model. Evaluate a tree-based challenger only after the data pipeline and baseline pass. Numerical forecasts come from validated models. Optional language-model summaries explain cited documents and model outputs; they must not invent returns or probabilities.
 
@@ -79,9 +79,9 @@ An assessment is evidence for a decision, not an order instruction. Stale, inval
 
 ```text
 src/stock_analyzer/
-  ingestion/       # SEC client, indexes, filings, market and macro adapters
+  ingestion/       # SEC client, indexes, filings, market and eligible sector-context adapters
   normalization/   # identities, accounting periods, facts, ownership events
-  features/        # fundamentals, insider activity, price, macro
+  features/        # fundamentals, insider activity, price, issuer/industry context
   research/        # associations, ablations, stability reports
   models/          # baselines, fitted models, calibration
   validation/      # temporal splits, leakage checks, evaluation
