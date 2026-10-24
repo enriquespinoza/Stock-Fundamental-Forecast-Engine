@@ -31,6 +31,19 @@ Initial rule candidates should be prompts for human review, not conclusions: rep
 
 Deeper filing context can be added in later stages: 10-K/10-Q MD&A and risk-factor changes, auditor opinion and internal-control disclosures, debt maturities, and material 8-K items. Text-derived cues need their own source excerpts and manual validation. A textual mention must not be presented as a verified event.
 
+### Build the first briefs
+
+After pulling the feature, run from the repository root with the research environment active:
+
+```bash
+python scripts/build_issuer_fundamental_briefs.py \
+  --financials-root data/normalized/financials \
+  --universe configs/universe/pilot_sp500_2026-10-07.csv \
+  --as-of "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+```
+
+The run writes an issuer JSONL brief, a CSV of review prompts, summary, and hash manifest under `data/processed/fundamental_briefs/`. The first prompts are deliberately narrow: two consecutive annual periods of negative operating cash flow, free cash flow, or operating income; two annual revenue declines; and liabilities above assets at the same annual balance-sheet date. These are **unvalidated review rules**, with no severity ranking or optimizer effect.
+
 ## Optimizer boundary
 
 For the first version, produce a sidecar company brief that the user can inspect beside optimizer candidates. The report is read-only and has no import into the allocation objective, constraints, scanner ranking, or execution handoff. It cannot veto or boost a stock automatically.
