@@ -17,7 +17,11 @@ MODEL_GROUPS = {
     "price_only": ("price",),
     "price_plus_insider": ("price", "insider"),
     "price_plus_financial": ("price", "financial"),
-    "price_plus_all_sec": ("price", "insider", "financial"),
+    "price_plus_10k": ("price", "financial_10k"),
+    "price_plus_10q": ("price", "financial_10q"),
+    "price_plus_insider_10k": ("price", "insider", "financial_10k"),
+    "price_plus_insider_10q": ("price", "insider", "financial_10q"),
+    "price_plus_all_sec": ("price", "insider", "financial", "financial_10k", "financial_10q"),
 }
 PRICE_COLUMNS = ("symbol", "session_date", "close_at_utc", "adjusted_close")
 
@@ -123,6 +127,7 @@ def _price_features(event: dict, histories: dict[str, list[dict]], benchmark: st
 
 def _event_features(row: dict[str, str], fields: list[str], event_time: datetime) -> dict[str, dict[str, float | str]]:
     groups: dict[str, dict[str, float | str]] = {name: {} for name in ("insider", "financial")}
+    selected_financial: dict[tuple[str, str], dict] = {}
     for name in ("transaction_code", "transaction_class", "acquired_disposed", "ownership_type"):
         value = (row.get(name) or "").strip()
         if value and value.lower() not in {"unknown", "none", "null"}:
@@ -139,6 +144,12 @@ def _event_features(row: dict[str, str], fields: list[str], event_time: datetime
     metrics = sorted({field[len("financial_"):-len("_value")]
                       for field in fields if field.startswith("financial_") and field.endswith("_value")})
     for metric in metrics:
+        if metric.endswith("_10k"):
+            group_name, feature_metric = "financial_10k", metric[:-4]
+        elif metric.endswith("_10q"):
+            group_name, feature_metric = "financial_10q", metric[:-4]
+        else:
+            group_name, feature_metric = "financial", metric
         selection = row.get(f"financial_{metric}_selection_status")
         value = _finite(row.get(f"financial_{metric}_value"))
         available = row.get(f"financial_{metric}_fact_available_after_utc")
@@ -147,12 +158,43 @@ def _event_features(row: dict[str, str], fields: list[str], event_time: datetime
                 raise ValueError(f"Financial feature {metric} was not available by its event time")
             if value is None:
                 raise ValueError(f"Selected financial feature {metric} has no numeric value")
-            groups["financial"][f"financial.{metric}.signed_log_value"] = _signed_log(value)
-            groups["financial"][f"financial.{metric}.available"] = 1.0
+            groups.setdefault(group_name, {})[f"{group_name}.{feature_metric}.signed_log_value"] = _signed_log(value)
+            groups.setdefault(group_name, {})[f"{group_name}.{feature_metric}.available"] = 1.0
+            selected_financial[(group_name, feature_metric)] = {
+                "value": value,
+                "unit": row.get(f"financial_{metric}_unit"),
+                "period_start": row.get(f"financial_{metric}_period_start") or "",
+                "period_end": row.get(f"financial_{metric}_period_end") or "",
+                "period_kind": row.get(f"financial_{metric}_period_kind") or "",
+            }
         elif selection == "NO_ELIGIBLE_FACT_AS_OF_EVENT":
-            groups["financial"][f"financial.{metric}.available"] = 0.0
+            groups.setdefault(group_name, {})[f"{group_name}.{feature_metric}.available"] = 0.0
         elif selection:
             raise ValueError(f"Unrecognized selection status for financial feature {metric}: {selection}")
+
+    ratio_definitions = (
+        ("net_income", "revenue", "net_income_to_revenue", "duration"),
+        ("operating_income", "revenue", "operating_income_to_revenue", "duration"),
+        ("operating_cash_flow", "revenue", "operating_cash_flow_to_revenue", "duration"),
+        ("capital_expenditures", "revenue", "capital_expenditures_to_revenue", "duration"),
+        ("free_cash_flow", "revenue", "free_cash_flow_to_revenue", "duration"),
+        ("liabilities", "assets", "liabilities_to_assets", "instant"),
+        ("equity", "assets", "equity_to_assets", "instant"),
+        ("cash", "assets", "cash_to_assets", "instant"),
+    )
+    for group_name in ("financial", "financial_10k", "financial_10q"):
+        for numerator, denominator, feature, period_type in ratio_definitions:
+            top = selected_financial.get((group_name, numerator))
+            bottom = selected_financial.get((group_name, denominator))
+            if not top or not bottom or top["unit"] != bottom["unit"] or bottom["value"] == 0:
+                continue
+            if (top["period_start"], top["period_end"]) != (bottom["period_start"], bottom["period_end"]):
+                continue
+            if period_type == "duration" and not top["period_start"]:
+                continue
+            if period_type == "instant" and top["period_start"]:
+                continue
+            groups.setdefault(group_name, {})[f"{group_name}.{feature}"] = top["value"] / bottom["value"]
     return groups
 
 
@@ -167,8 +209,8 @@ def _rows_to_vectors(rows: list[dict[str, str]], fields: list[str], histories: d
         vector: dict[str, float | str] = {}
         groups = _event_features(row, fields, event_time)
         vector.update(_price_features(row, histories, benchmark))
-        for group in ("insider", "financial"):
-            vector.update(groups[group])
+        for group in ("insider", "financial", "financial_10k", "financial_10q"):
+            vector.update(groups.get(group, {}))
         vectors.append(vector)
     return vectors
 
@@ -343,6 +385,11 @@ def evaluate_sec_signal_models(dataset_path: Path, prices_path: Path, price_mani
             vectorizer = DictVectorizer(sparse=True, sort=True)
             x_train = vectorizer.fit_transform(x_train_dict)
             x_test = vectorizer.transform(x_test_dict)
+            if x_train.shape[1] == 0:
+                raise ValueError(
+                    f"No training features for {model_name}; rebuild the point-in-time join and "
+                    "research dataset with the current annual/quarterly feature schema"
+                )
             scaler = StandardScaler(with_mean=False)
             x_train = scaler.fit_transform(x_train)
             x_test = scaler.transform(x_test)
@@ -422,14 +469,21 @@ def evaluate_sec_signal_models(dataset_path: Path, prices_path: Path, price_mani
     summary = {
         "schema_version": "sec-signal-model-evaluation-summary-v1",
         "forecast_status": "RESEARCH_ONLY_SELECTED_COHORT_EXPLORATORY",
-        "training_scope": "historical_form4_and_point_in_time_financial_features",
+        "training_scope": "historical_form4_and_point_in_time_structured_financial_facts",
         "not_yet_included": ["8-K section features", "10-K/10-Q narrative features", "13D/13G", "13F"],
+        "10k_10q_fact_policy": "10-K duration facts are annual-only; 10-Q duration facts are quarter-only; each filing family is selected and versioned independently",
+        "derived_financial_ratios": [
+            "net_income_to_revenue", "operating_income_to_revenue",
+            "operating_cash_flow_to_revenue", "capital_expenditures_to_revenue",
+            "free_cash_flow_to_revenue", "liabilities_to_assets",
+            "equity_to_assets", "cash_to_assets",
+        ],
         "event_count": len(rows), "eligible_horizons": [5, 20],
         "primary_metrics": ["MAE", "Spearman IC", "paired issuer-week bootstrap MAE difference"],
         "model": {"estimator": "Ridge regression", "alpha": ridge_alpha,
                   "features_standardized_on_training_rows_only": True,
                   "holdout_fraction_by_unique_event_date": 1 - train_fraction},
-        "feature_group_ablation_rule": "same eligible rows and chronological holdout for each model; compare nested fixed feature groups",
+        "feature_group_ablation_rule": "same eligible rows and chronological holdout for each model; compare predeclared price, insider, mixed financial, 10-K, and 10-Q feature groups",
         "outcome_overlap_policy": "training outcomes must end before earliest holdout start session",
         "price_feature_availability_policy": "only adjusted closes with actual close_at_utc strictly before event availability",
         "price_adjustment_caveat": "adjusted-close history comes from a later acquired snapshot and may reflect later corporate-action adjustments",
