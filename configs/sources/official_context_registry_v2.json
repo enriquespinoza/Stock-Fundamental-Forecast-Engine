@@ -1,0 +1,117 @@
+{
+  "schema_version": "official-context-source-registry-v2",
+  "registry_status": "ACTIVE_NO_MACROECONOMIC_INDICATORS",
+  "research_only": true,
+  "entries": [
+    {
+      "source_id": "sec_edgar_company_disclosures",
+      "publisher": "U.S. Securities and Exchange Commission",
+      "source_class": "COMPANY_REPORTED_PRIMARY",
+      "product": "EDGAR submissions, filings, and Company Facts/XBRL APIs",
+      "url": "https://www.sec.gov/search-filings/edgar-application-programming-interfaces",
+      "scope": "issuer_specific",
+      "cohort_sectors": [
+        "all"
+      ],
+      "observation_date_field": "filing_date_or_fact_period_end",
+      "public_availability_field": "accepted_at_utc_or_historical_available_after_utc",
+      "point_in_time_policy": "Use filing acceptance/known availability; never use report period end as publication time.",
+      "revision_policy": "Preserve filing accession and amendments as separate dated evidence.",
+      "series_selection": "Existing SEC ingestion and normalized facts",
+      "limitations": [
+        "Company-reported disclosure; not independent verification.",
+        "XBRL coverage varies by filer and tag."
+      ]
+    },
+    {
+      "source_id": "eia_petroleum_price_context",
+      "publisher": "U.S. Energy Information Administration",
+      "source_class": "INDUSTRY_CONTEXT",
+      "product": "Petroleum spot-price time series via EIA Open Data API",
+      "url": "https://www.eia.gov/opendata/v1/",
+      "scope": "energy_industry",
+      "cohort_sectors": [
+        "Energy"
+      ],
+      "observation_date_field": "price_observation_date",
+      "public_availability_field": "official_release_timestamp_or_archived_observed_at_utc",
+      "point_in_time_policy": "Use the source publication/release time where documented; otherwise use the archived acquisition timestamp as a conservative availability bound.",
+      "revision_policy": "Archive each API response with query, acquisition time, and hash; do not backfill later revisions into earlier report snapshots.",
+      "series_selection": "Select crude benchmarks and relevant refined-product prices by explicit EIA route/series ID before use; do not choose series dynamically from ticker alone.",
+      "limitations": [
+        "Commodity benchmarks are sector context, not company realized prices or margins.",
+        "Business mix and hedging can make benchmark movements a poor proxy for issuer exposure.",
+        "Industry-specific commodity context only; general macroeconomic indicators are out of scope for this engine."
+      ]
+    },
+    {
+      "source_id": "pcaob_auditorsearch_form_ap",
+      "publisher": "Public Company Accounting Oversight Board",
+      "source_class": "GOVERNANCE_CONTEXT",
+      "product": "AuditorSearch / Form AP",
+      "url": "https://pcaobus.org/resources/auditorsearch",
+      "scope": "issuer_specific",
+      "cohort_sectors": [
+        "all"
+      ],
+      "observation_date_field": "audit_report_date",
+      "public_availability_field": "form_ap_filed_at_or_archived_observed_at_utc",
+      "point_in_time_policy": "Include auditor/engagement-participant information only from Form AP records public by report cutoff.",
+      "revision_policy": "Preserve filing and amendment identifiers where available; archive source download and hash.",
+      "series_selection": "Auditor identity and reported audit participants only.",
+      "limitations": [
+        "Auditor identity or partner changes are not an audit-quality score.",
+        "Interpret only alongside audit opinions, inspection findings, and company disclosures."
+      ]
+    },
+    {
+      "source_id": "fdic_bank_data",
+      "publisher": "Federal Deposit Insurance Corporation",
+      "source_class": "INDUSTRY_AND_ISSUER_CONTEXT",
+      "product": "FDIC BankFind Suite bank and institution data",
+      "url": "https://banks.data.fdic.gov/",
+      "scope": "insured_depository_institutions",
+      "cohort_sectors": [
+        "Financials"
+      ],
+      "observation_date_field": "reporting_period_end",
+      "public_availability_field": "official_release_date_or_archived_observed_at_utc",
+      "point_in_time_policy": "Match insured institution identity carefully and use only data released by report cutoff.",
+      "revision_policy": "Archive query, response, release date, and hash; preserve later corrections separately.",
+      "series_selection": "Only add after mapping the public issuer to regulated bank subsidiaries and selecting exact fields.",
+      "limitations": [
+        "Consolidated public-company results and insured-bank subsidiary results may differ.",
+        "Do not apply to non-bank issuers."
+      ]
+    },
+    {
+      "source_id": "datagov_discovery_catalog",
+      "publisher": "U.S. General Services Administration / participating agencies",
+      "source_class": "DISCOVERY_ONLY",
+      "product": "Data.gov catalog",
+      "url": "https://catalog.data.gov/",
+      "scope": "dataset_discovery",
+      "cohort_sectors": [
+        "all"
+      ],
+      "observation_date_field": "dataset_dependent",
+      "public_availability_field": "dataset_dependent",
+      "point_in_time_policy": "Do not ingest from the catalog as a source of record; follow each dataset to its originating agency and document that agency's release policy.",
+      "revision_policy": "Dataset-specific; must be resolved at source onboarding.",
+      "series_selection": "Discovery index only.",
+      "limitations": [
+        "Catalog listing does not guarantee original-source status, completeness, update cadence, or historical vintages."
+      ]
+    }
+  ],
+  "supersedes": "official-context-source-registry-v1",
+  "scope_note": "This stock engine excludes macroeconomic indicator series; TMF Predictive Analytics owns rate and macro analysis. Issuer-specific filings, governance records, bank-specific data, and narrowly mapped industry commodity context may remain.",
+  "excluded_v1_source_ids": [
+    "treasury_daily_par_yield_curve",
+    "bls_cpi_u_all_items",
+    "bls_ppi_final_demand",
+    "bea_industry_accounts",
+    "fred_alfred_vintage_access",
+    "ofr_financial_system_context"
+  ]
+}

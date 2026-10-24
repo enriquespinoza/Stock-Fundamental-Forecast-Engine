@@ -55,8 +55,16 @@ class PointInTimeUniverseTests(unittest.TestCase):
                 rows = list(csv.DictReader(stream))
             by_event_metric = {(row["event_id"], row["metric"]): row for row in rows}
             self.assertEqual(by_event_metric[("event-a", "assets")]["value"], "100")
+            self.assertEqual(by_event_metric[("event-a", "assets_10q")]["value"], "100")
+            self.assertEqual(by_event_metric[("event-a", "assets_10k")]["selection_status"],
+                             "NO_ELIGIBLE_FACT_AS_OF_EVENT")
             self.assertEqual(by_event_metric[("event-b", "assets")]["value"], "")
             self.assertEqual(by_event_metric[("event-b", "assets")]["selection_status"], "NO_ELIGIBLE_FACT_AS_OF_EVENT")
+            self.assertEqual(len(rows), 66)
+            self.assertEqual(result["summary"]["metric_count"], 33)
+            self.assertEqual(result["summary"]["selected_base_fact_rows"], 1)
+            self.assertEqual(result["summary"]["selected_10k_fact_rows"], 0)
+            self.assertEqual(result["summary"]["selected_10q_fact_rows"], 1)
             self.assertEqual(result["summary"]["event_counts_by_issuer_cik"], {"0000000001": 1, "0000000002": 1})
             self.assertEqual(len(result["manifest"]["financials_inputs"]), 2)
 

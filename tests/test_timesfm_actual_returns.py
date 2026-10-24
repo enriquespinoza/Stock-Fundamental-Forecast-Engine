@@ -85,7 +85,7 @@ class TimesFMActualReturnTests(unittest.TestCase):
         for row in rows:
             row.pop("forecast_generated_at_utc", None)
         with self.features_path.open("w", encoding="utf-8", newline="") as stream:
-            writer = csv.DictWriter(stream, fieldnames=fields, lineterminator="\\n")
+            writer = csv.DictWriter(stream, fieldnames=fields, lineterminator="\n")
             writer.writeheader()
             writer.writerows(rows)
         manifest = json.loads(self.feature_manifest_path.read_text(encoding="utf-8"))

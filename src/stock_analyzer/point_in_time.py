@@ -21,6 +21,13 @@ METRIC_KINDS["free_cash_flow"] = "duration"
 METRIC_ORDER = [*METRICS, "free_cash_flow"]
 PERIOD_TIEBREAK = {"quarter": 0, "annual": 1, "ytd_nine_months": 2,
                    "ytd_half_year": 3, "other_duration": 4, "instant": 0}
+REPORT_FAMILIES = {
+    "10k": {"forms": {"10-K", "10-K/A"}, "duration_kind": "annual"},
+    "10q": {"forms": {"10-Q", "10-Q/A"}, "duration_kind": "quarter"},
+}
+REPORT_METRIC_ORDER = [f"{metric}_{family}" for family in REPORT_FAMILIES
+                       for metric in METRIC_ORDER]
+PIT_METRIC_ORDER = [*METRIC_ORDER, *REPORT_METRIC_ORDER]
 
 
 def _sha256(raw: bytes) -> str:
@@ -42,6 +49,23 @@ def _latest_fact(rows: list[dict], metric: str) -> dict | None:
     if len(identities) > 1:
         raise ValueError(f"Ambiguous latest {metric} fact for period ending {latest_end}")
     return sorted(best, key=lambda row: row.get("accession_number", ""))[-1]
+
+
+def _latest_report_fact(rows: list[dict], metric: str, family: str) -> dict | None:
+    """Select the latest annual 10-K or quarter-only 10-Q fact independently."""
+    definition = REPORT_FAMILIES[family]
+    eligible = [row for row in rows if row.get("form") in definition["forms"]
+                and (row.get("period_kind") == "instant"
+                     or row.get("period_kind") == definition["duration_kind"])]
+    return _latest_fact(eligible, metric)
+
+
+def _report_family_facts(facts: list[dict], as_of: str, family: str) -> list[dict]:
+    """Keep version selection within the original 10-K or 10-Q filing family."""
+    forms = REPORT_FAMILIES[family]["forms"]
+    versions = [row for row in facts if row.get("form") in forms]
+    selected = select_as_of(versions, as_of, mode="historical")
+    return [*selected, *aligned_cash_flow_features(selected)]
 
 
 def _feature_row(event: dict, metric: str, fact: dict | None, event_time) -> dict:
@@ -103,9 +127,17 @@ def join_form4_events_to_financials(events_path: Path, financials_path: Path,
         selected = select_as_of(facts, event["historical_available_after_utc"], mode="historical")
         derived = aligned_cash_flow_features(selected)
         all_selected = [*selected, *derived]
+        report_selected = {family: _report_family_facts(
+            facts, event["historical_available_after_utc"], family) for family in REPORT_FAMILIES}
         for metric in METRIC_ORDER:
             fact = _latest_fact([row for row in all_selected if row["metric"] == metric], metric)
             output_rows.append(_feature_row(event, metric, fact, event_time))
+        for family in REPORT_FAMILIES:
+            family_rows = report_selected[family]
+            for metric in METRIC_ORDER:
+                fact = _latest_report_fact(
+                    [row for row in family_rows if row["metric"] == metric], metric, family)
+                output_rows.append(_feature_row(event, f"{metric}_{family}", fact, event_time))
 
     stamp = utc_text(parse_timestamp(built_at_utc)) if built_at_utc else utc_text(datetime.now(timezone.utc))
     folder = output_root / stamp.replace(":", "-")
@@ -116,24 +148,29 @@ def join_form4_events_to_financials(events_path: Path, financials_path: Path,
         writer.writeheader()
         writer.writerows(output_rows)
     summary = {
-        "schema_version": "form4-point-in-time-join-summary-v1",
-        "event_count": len(events), "metric_count": len(METRIC_ORDER),
+        "schema_version": "form4-point-in-time-join-summary-v2",
+        "event_count": len(events), "metric_count": len(PIT_METRIC_ORDER),
+        "base_metric_count": len(METRIC_ORDER), "report_family_metric_count": len(REPORT_METRIC_ORDER),
+        "report_family_policy": "10-K duration facts annual only; 10-Q duration facts quarter only; instant facts retained by form",
         "event_metric_rows": len(output_rows),
         "selected_fact_rows": sum(row["selection_status"] == "SELECTED_AS_OF_EVENT" for row in output_rows),
         "missing_metric_rows": sum(row["selection_status"] != "SELECTED_AS_OF_EVENT" for row in output_rows),
+        "selected_base_fact_rows": sum(row["metric"] in METRIC_ORDER and row["selection_status"] == "SELECTED_AS_OF_EVENT" for row in output_rows),
+        "selected_10k_fact_rows": sum(row["metric"].endswith("_10k") and row["selection_status"] == "SELECTED_AS_OF_EVENT" for row in output_rows),
+        "selected_10q_fact_rows": sum(row["metric"].endswith("_10q") and row["selection_status"] == "SELECTED_AS_OF_EVENT" for row in output_rows),
         "financials_with_issues": len(normalized_financials.get("issues", [])),
         "label_status": "NOT_CREATED",
     }
     summary_path = folder / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     manifest = {
-        "schema_version": "form4-point-in-time-join-manifest-v1", "built_at_utc": stamp,
+        "schema_version": "form4-point-in-time-join-manifest-v2", "built_at_utc": stamp,
         "event_input": {"path": str(events_path), "sha256": _sha256(events_raw)},
         "financials_input": {"path": str(financials_path), "sha256": _sha256(financials_raw)},
         "output": {"path": str(output_path), "sha256": _sha256(output_path.read_bytes()),
                    "row_count": len(output_rows)},
         "summary_sha256": _sha256(summary_path.read_bytes()),
-        "availability_policy": "historical_available_after_utc inclusive cutoff",
+        "availability_policy": "historical_available_after_utc inclusive cutoff; each report family versioned separately",
         "forecast_status": "NOT_IMPLEMENTED",
     }
     (folder / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")

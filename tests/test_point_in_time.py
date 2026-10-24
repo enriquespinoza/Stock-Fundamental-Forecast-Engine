@@ -8,10 +8,10 @@ import unittest
 from stock_analyzer.point_in_time import join_form4_events_to_financials
 
 
-def fact(metric, value, start, end, kind, accession, tag, available, *, tag_preference=0):
+def fact(metric, value, start, end, kind, accession, tag, available, *, tag_preference=0, form="10-Q"):
     return {"schema_version": "financial-fact-v1", "issuer_cik": "0000000001", "metric": metric,
             "unit": "USD", "value": str(value), "period_start": start, "period_end": end,
-            "period_kind": kind, "accession_number": accession, "form": "10-Q", "tag": tag,
+            "period_kind": kind, "accession_number": accession, "form": form, "tag": tag,
             "tag_preference": tag_preference, "accepted_at_utc": available,
             "historical_available_after_utc": available, "live_available_after_utc": available}
 
@@ -27,7 +27,7 @@ class PointInTimeJoinTests(unittest.TestCase):
                 writer = csv.DictWriter(stream, fieldnames=("event_id", "issuer_cik", "historical_available_after_utc"))
                 writer.writeheader()
                 writer.writerow({"event_id": "event-1", "issuer_cik": "0000000001",
-                                 "historical_available_after_utc": "2026-07-22T12:00:00Z"})
+                                 "historical_available_after_utc": "2026-09-10T12:00:00Z"})
             event_raw = events_path.read_bytes()
             (event_dir / "manifest.json").write_text(json.dumps({"output": {
                 "sha256": hashlib.sha256(event_raw).hexdigest(), "row_count": 1}}))
@@ -36,7 +36,15 @@ class PointInTimeJoinTests(unittest.TestCase):
             financial_dir.mkdir()
             financial_path = financial_dir / "normalized.json"
             facts = [
-                fact("revenue", "100", "2026-04-01", "2026-06-30", "quarter", "accn-q2",
+                fact("revenue", "900", "2025-07-01", "2026-06-30", "annual", "accn-10k",
+                     "RevenueFromContractWithCustomerExcludingAssessedTax", "2026-08-01T12:00:00Z",
+                     form="10-K"),
+                fact("revenue", "1100", "2025-07-01", "2026-06-30", "annual", "accn-10q-comparative",
+                     "RevenueFromContractWithCustomerExcludingAssessedTax", "2026-09-01T12:00:00Z",
+                     form="10-Q"),
+                fact("revenue", "320", "2026-04-01", "2026-06-30", "quarter", "accn-q3-quarter",
+                     "RevenueFromContractWithCustomerExcludingAssessedTax", "2026-07-21T12:00:00Z"),
+                fact("revenue", "100", "2026-01-01", "2026-03-31", "quarter", "accn-q2",
                      "RevenueFromContractWithCustomerExcludingAssessedTax", "2026-07-21T12:00:00Z"),
                 fact("revenue", "250", "2026-01-01", "2026-06-30", "ytd_half_year", "accn-q2",
                      "RevenueFromContractWithCustomerExcludingAssessedTax", "2026-07-21T12:00:00Z"),
@@ -60,15 +68,25 @@ class PointInTimeJoinTests(unittest.TestCase):
             with result["csv_path"].open(encoding="utf-8", newline="") as stream:
                 rows = {row["metric"]: row for row in csv.DictReader(stream)}
 
-            self.assertEqual(rows["revenue"]["value"], "100")
+            self.assertEqual(rows["revenue"]["value"], "120")
             self.assertEqual(rows["revenue"]["period_kind"], "quarter")
-            self.assertEqual(rows["revenue"]["fact_accession_number"], "accn-q2")
+            self.assertEqual(rows["revenue"]["fact_accession_number"], "accn-amend")
+            self.assertEqual(rows["revenue_10k"]["value"], "900")
+            self.assertEqual(rows["revenue_10k"]["fact_accession_number"], "accn-10k")
+            self.assertEqual(rows["revenue_10k"]["fact_form"], "10-K")
+            self.assertEqual(rows["revenue_10q"]["value"], "120")
+            self.assertEqual(rows["revenue_10q"]["period_kind"], "quarter")
             self.assertEqual(rows["free_cash_flow"]["value"], "40")
             self.assertEqual(rows["free_cash_flow"]["fact_accession_number"], "accn-q2")
+            self.assertEqual(rows["free_cash_flow_10q"]["value"], "40")
+            self.assertEqual(rows["free_cash_flow_10k"]["selection_status"], "NO_ELIGIBLE_FACT_AS_OF_EVENT")
             self.assertEqual(rows["assets"]["selection_status"], "NO_ELIGIBLE_FACT_AS_OF_EVENT")
             self.assertEqual(result["summary"]["event_count"], 1)
-            self.assertEqual(result["summary"]["event_metric_rows"], 11)
-            self.assertEqual(result["summary"]["selected_fact_rows"], 4)
+            self.assertEqual(result["summary"]["event_metric_rows"], 33)
+            self.assertEqual(result["summary"]["selected_fact_rows"], 9)
+            self.assertEqual(result["summary"]["selected_base_fact_rows"], 4)
+            self.assertEqual(result["summary"]["selected_10k_fact_rows"], 1)
+            self.assertEqual(result["summary"]["selected_10q_fact_rows"], 4)
             self.assertEqual(result["summary"]["financials_with_issues"], 1)
 
     def test_rejects_event_and_financial_issuer_mismatch(self):
