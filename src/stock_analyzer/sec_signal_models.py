@@ -10,7 +10,7 @@ import math
 from pathlib import Path
 import random
 
-from .ledger import parse_timestamp, utc_text
+from .ledger import normalize_cik, parse_timestamp, utc_text
 
 HORIZONS = (5, 20)
 MODEL_GROUPS = {
@@ -24,6 +24,9 @@ MODEL_GROUPS = {
     "price_plus_all_sec": ("price", "insider", "financial", "financial_10k", "financial_10q"),
 }
 PRICE_COLUMNS = ("symbol", "session_date", "close_at_utc", "adjusted_close")
+EVALUATION_PERMISSIONS = (
+    "correlations_allowed", "forecast_training_allowed", "historical_performance_claims_allowed",
+)
 
 
 def _sha(raw: bytes) -> str:
@@ -49,6 +52,112 @@ def _verify_artifact(path: Path, raw: bytes, rows: list[dict], manifest: dict) -
         raise ValueError(f"CSV hash does not match its manifest: {path}")
     if output.get("row_count") != len(rows):
         raise ValueError(f"CSV row count does not match its manifest: {path}")
+
+
+def _bound_input(reference: dict, kind: str) -> tuple[Path, bytes]:
+    if not isinstance(reference, dict) or not isinstance(reference.get("path"), str) or not reference["path"]:
+        raise ValueError(f"Cohort eligibility: missing {kind} path binding")
+    digest = reference.get("sha256")
+    if not isinstance(digest, str) or len(digest) != 64:
+        raise ValueError(f"Cohort eligibility: missing {kind} SHA-256 binding")
+    # Producer paths, including cohort_csv, use the repository-CWD convention.
+    path = Path(reference["path"]).resolve()
+    raw = path.read_bytes()
+    if _sha(raw) != digest:
+        raise ValueError(f"Cohort eligibility: {kind} SHA-256 mismatch")
+    return path, raw
+
+
+def _bound_rows(raw: bytes, required: set[str], kind: str) -> list[dict]:
+    reader = csv.DictReader(raw.decode("utf-8-sig").splitlines())
+    fields = reader.fieldnames or []
+    if len(fields) != len(set(fields)) or not required.issubset(fields):
+        raise ValueError(f"Cohort eligibility: invalid {kind} columns")
+    rows = list(reader)
+    if not rows:
+        raise ValueError(f"Cohort eligibility: empty {kind}")
+    return rows
+
+
+def _cohort_eligibility(dataset_manifest: dict, rows: list[dict]) -> dict:
+    """Validate frozen cohort ancestry before any historical evaluation work.
+
+    Both research and event manifests must contain cohort_input with path,
+    sha256, manifest_path and manifest_sha256. Research event_input must also
+    pin its sibling manifest.json with manifest_sha256. Old producers do not
+    write these bindings: their artifacts remain auditable, but ineligible.
+    Permissions authorize this evaluator; they do not certify source quality
+    or historical universe completeness. No artifact is rewritten here.
+    """
+    cohort_ref = dataset_manifest.get("cohort_input")
+    cohort_path, cohort_raw = _bound_input(cohort_ref, "cohort CSV")
+    policy_path, policy_raw = _bound_input({
+        "path": cohort_ref.get("manifest_path"), "sha256": cohort_ref.get("manifest_sha256"),
+    }, "cohort manifest")
+    policy = json.loads(policy_raw)
+    if not isinstance(policy, dict) or policy.get("schema_version") != "stock-analyzer-universe-manifest-v1":
+        raise ValueError("Cohort eligibility: unsupported cohort manifest")
+    declared_csv = policy.get("cohort_csv")
+    if not isinstance(declared_csv, str) or Path(declared_csv).resolve() != cohort_path:
+        raise ValueError("Cohort eligibility: manifest does not declare the bound cohort CSV")
+    selection = policy.get("selection")
+    denied = [name for name in EVALUATION_PERMISSIONS
+              if not isinstance(selection, dict) or selection.get(name) is not True]
+    if denied:
+        raise ValueError("Cohort eligibility: permissions denied: " + ", ".join(denied))
+
+    cohort = _bound_rows(cohort_raw, {"symbol", "issuer_cik"}, "cohort CSV")
+
+    def issuer(row: dict, symbol_field: str) -> tuple[str, str]:
+        symbol = (row.get(symbol_field) or "").strip().upper()
+        if not symbol:
+            raise ValueError("Cohort eligibility: missing issuer symbol")
+        return symbol, normalize_cik(row.get("issuer_cik", ""))
+
+    members = {issuer(row, "symbol") for row in cohort}
+    if len(members) != len(cohort) or type(policy.get("member_count")) is not int or policy["member_count"] != len(cohort):
+        raise ValueError("Cohort eligibility: cohort membership count mismatch or duplicates")
+
+    event_ref = dataset_manifest.get("event_input")
+    event_path, event_raw = _bound_input(event_ref, "event CSV")
+    event_manifest_path, event_manifest_raw = _bound_input({
+        "path": str(event_path.parent / "manifest.json"), "sha256": event_ref.get("manifest_sha256"),
+    }, "event manifest")
+    event_manifest = json.loads(event_manifest_raw)
+    if (not isinstance(event_manifest, dict)
+            or event_manifest.get("schema_version") != "form4-event-dataset-manifest-v1"
+            or not isinstance(event_manifest.get("output"), dict)):
+        raise ValueError("Cohort eligibility: invalid event manifest")
+    events = _bound_rows(event_raw, {"event_id", "issuer_symbol", "issuer_cik"}, "event CSV")
+    _verify_artifact(event_path, event_raw, events, event_manifest)
+    upstream_cohort = event_manifest.get("cohort_input")
+    if not isinstance(upstream_cohort, dict):
+        raise ValueError("Cohort eligibility: missing event cohort binding")
+    for name in ("sha256", "manifest_sha256"):
+        if upstream_cohort.get(name) != cohort_ref[name]:
+            raise ValueError("Cohort eligibility: event and research cohort hash bindings differ")
+    for name, expected in (("path", cohort_path), ("manifest_path", policy_path)):
+        value = upstream_cohort.get(name)
+        if not isinstance(value, str) or not value or Path(value).resolve() != expected:
+            raise ValueError("Cohort eligibility: event and research cohort paths differ")
+
+    by_id = {event["event_id"]: event for event in events}
+    ids = [row.get("event_id") for row in rows]
+    if (not ids or any(not value for value in ids) or len(ids) != len(set(ids))
+            or len(by_id) != len(events) or set(ids) != set(by_id)):
+        raise ValueError("Cohort eligibility: research/event identities differ or are duplicated")
+    for row in rows:
+        identity = issuer(row, "issuer_symbol")
+        if identity != issuer(by_id[row["event_id"]], "issuer_symbol") or identity not in members:
+            raise ValueError("Cohort eligibility: event/research issuer is outside the bound cohort")
+    return {
+        "cohort_input": {"path": str(cohort_path), "sha256": _sha(cohort_raw),
+                         "manifest_path": str(policy_path), "manifest_sha256": _sha(policy_raw)},
+        "event_input": {"path": str(event_path), "sha256": _sha(event_raw),
+                        "manifest_path": str(event_manifest_path), "manifest_sha256": _sha(event_manifest_raw)},
+        "universe_id": policy.get("universe_id"),
+        "required_permissions": {name: selection[name] for name in EVALUATION_PERMISSIONS},
+    }
 
 
 def _bool(value: str | None) -> bool | None:
@@ -319,6 +428,7 @@ def evaluate_sec_signal_models(dataset_path: Path, prices_path: Path, price_mani
     _verify_artifact(dataset_path, dataset_raw, rows, dataset_manifest)
     if dataset_manifest.get("forecast_status") != "LABELS_AND_FEATURES_NO_FORECAST":
         raise ValueError("Dataset manifest is not an eligible unmodeled research artifact")
+    cohort_eligibility = _cohort_eligibility(dataset_manifest, rows)
 
     labels_ref = dataset_manifest.get("return_labels_input", {})
     labels_path = Path(labels_ref.get("path", ""))
@@ -493,6 +603,7 @@ def evaluate_sec_signal_models(dataset_path: Path, prices_path: Path, price_mani
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     manifest = {
         "schema_version": "sec-signal-model-evaluation-manifest-v1", "built_at_utc": stamp,
+        "cohort_eligibility": cohort_eligibility,
         "research_dataset": {"path": str(dataset_path), "sha256": _sha(dataset_raw),
                              "manifest_sha256": _sha(dataset_manifest_path.read_bytes())},
         "price_snapshot": {"path": str(prices_path), "sha256": _sha(prices_path.read_bytes()),

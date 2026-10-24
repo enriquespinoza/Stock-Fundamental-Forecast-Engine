@@ -15,6 +15,49 @@ def sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def bind_synthetic_cohort(dataset_path, *, cohort_path=None, policy_path=None):
+    """Create lineage only for newly constructed temporary test fixtures."""
+    root = dataset_path.parent
+    with dataset_path.open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    if cohort_path is None:
+        cohort_path = root / "cohort.csv"
+        with cohort_path.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream, lineterminator="\n")
+            writer.writerow(["symbol", "issuer_cik"])
+            writer.writerows(sorted({(row["issuer_symbol"], row["issuer_cik"]) for row in rows}))
+        policy_path = root / "cohort.manifest.json"
+        policy_path.write_text(json.dumps({
+            "schema_version": "stock-analyzer-universe-manifest-v1", "universe_id": "synthetic-only",
+            "cohort_csv": str(cohort_path),
+            "member_count": len({(row["issuer_symbol"], row["issuer_cik"]) for row in rows}),
+            "selection": {"correlations_allowed": True, "forecast_training_allowed": True,
+                          "historical_performance_claims_allowed": True},
+        }), encoding="utf-8")
+    cohort_ref = {"path": str(cohort_path), "sha256": sha(cohort_path.read_bytes()),
+                  "manifest_path": str(policy_path), "manifest_sha256": sha(policy_path.read_bytes())}
+    events = root / "events"
+    events.mkdir(exist_ok=True)
+    events_path = events / "events.csv"
+    with events_path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=["event_id", "issuer_symbol", "issuer_cik"],
+                                extrasaction="ignore", lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+    event_manifest = events / "manifest.json"
+    event_manifest.write_text(json.dumps({
+        "schema_version": "form4-event-dataset-manifest-v1", "cohort_input": cohort_ref,
+        "output": {"sha256": sha(events_path.read_bytes()), "row_count": len(rows)},
+    }), encoding="utf-8")
+    manifest_path = root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.update({"cohort_input": cohort_ref, "event_input": {
+        "path": str(events_path), "sha256": sha(events_path.read_bytes()),
+        "manifest_sha256": sha(event_manifest.read_bytes()),
+    }})
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
 class SecSignalModelTests(unittest.TestCase):
     def test_price_features_exclude_close_at_or_after_event_timestamp(self):
         history = [
@@ -165,6 +208,7 @@ class SecSignalModelTests(unittest.TestCase):
                 "event_input": {"sha256": "eventhash"},
                 "output": {"sha256": sha(dataset_raw), "row_count": len(rows)},
             }), encoding="utf-8")
+            bind_synthetic_cohort(dataset_path)
 
             result = evaluate_sec_signal_models(
                 dataset_path, prices_path, price_manifest_path, root / "evaluations",
@@ -183,6 +227,8 @@ class SecSignalModelTests(unittest.TestCase):
             self.assertEqual(result["summary"]["forecast_status"], "RESEARCH_ONLY_SELECTED_COHORT_EXPLORATORY")
             self.assertIn("mae_delta_vs_price_only", result["summary"]["horizons"]["5s"]["metrics"]["price_plus_all_sec"])
             self.assertTrue((output / "manifest.json").is_file())
+            self.assertEqual(result["manifest"]["cohort_eligibility"]["cohort_input"],
+                             json.loads((dataset_path.parent / "manifest.json").read_text())["cohort_input"])
 
 
 if __name__ == "__main__":
