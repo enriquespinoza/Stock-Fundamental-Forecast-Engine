@@ -78,7 +78,7 @@ Historical confirmation requires a point-in-time security universe with membersh
 
 ## First historical model build
 
-The initial evaluator is a development-stage comparison for the current 32-issuer pilot. It compares a predeclared Ridge baseline using trailing issuer/benchmark price features with models that add Form 4 transaction features, point-in-time financial facts, or both. It predicts 5- and 20-session benchmark-adjusted returns. It does **not** yet compare the full SEC filing families in this protocol: 8-K event features, 10-K/10-Q narrative features, 13D/13G, and 13F are not integrated in this build.
+The initial evaluator is a development-stage comparison for the current 32-issuer pilot. It compares a predeclared Ridge baseline using trailing issuer/benchmark price features with Form 4, mixed financial, annual 10-K, and quarter-only 10-Q structured XBRL feature groups, including only period-aligned margins and balance-sheet ratios. It predicts 5- and 20-session benchmark-adjusted returns. It does **not** yet compare the full SEC filing families in this protocol: 8-K event features, 10-K/10-Q narrative features, 13D/13G, and 13F are not integrated in this build. The annual and quarterly feature selection and rebuild procedure is documented in [the 10-K/10-Q financial feature pipeline](10k-financial-feature-pipeline.md).
 
 The evaluator requires the exact market-price CSV used to build the research dataset's return labels, plus its matching snapshot manifest. Run it in the research environment after installing the optional research dependencies:
 
