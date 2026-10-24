@@ -76,4 +76,20 @@ Historical confirmation requires a point-in-time security universe with membersh
 6. **TimesFM add-on:** keep calibration and prospective holdout separate. Compare the frozen SEC model with the same model plus TimesFM; do not mix TimesFM retrospective replays into its prospective evidence.
 7. **Operational review:** any promising holdout result supports a research review only. A separate paper-trading and integration gate is required before a forecast can inform portfolio or execution systems.
 
+## First historical model build
+
+The initial evaluator is a development-stage comparison for the current 32-issuer pilot. It compares a predeclared Ridge baseline using trailing issuer/benchmark price features with models that add Form 4 transaction features, point-in-time financial facts, or both. It predicts 5- and 20-session benchmark-adjusted returns. It does **not** yet compare the full SEC filing families in this protocol: 8-K event features, 10-K/10-Q narrative features, 13D/13G, and 13F are not integrated in this build.
+
+The evaluator requires the exact market-price CSV used to build the research dataset's return labels, plus its matching snapshot manifest. Run it in the research environment after installing the optional research dependencies:
+
+```bash
+python -m pip install -e ".[research]"
+python scripts/evaluate_sec_signal_models.py \
+  --research-dataset "data/processed/form4_research_datasets/<run>/event_research_dataset.csv" \
+  --prices "data/raw/market/<label-price-snapshot>.csv" \
+  --price-manifest "data/raw/market/<label-price-snapshot>.manifest.json"
+```
+
+Each run writes hash-backed holdout predictions, top standardized coefficients, a summary, and a manifest under `data/processed/sec_signal_model_evaluations/`. Lower MAE/RMSE deltas versus `price_only` indicate better error on the same holdout; bootstrap intervals are clustered by issuer-week. These estimates remain exploratory because the pilot cohort is selected from a 2026 S&P 500 snapshot, the holdout is a single chronological slice, and adjusted prices can reflect later corporate-action revisions. The coefficient table is model-specific attribution, not causal evidence or a universal feature ranking. Keep outputs out of portfolio and execution systems.
+
 The 2026 pilot cohort alone does not pass the historical-universe gate. Data acquisition for historical membership and issuer/security identity is therefore a prerequisite for broad historical claims. The current pipeline remains research-only and produces no orders.
