@@ -37,6 +37,30 @@ class SecSignalModelTests(unittest.TestCase):
             _event_features(row, ["financial_assets_value"], __import__("datetime").datetime.fromisoformat(
                 "2021-01-01T00:00:00+00:00"))
 
+    def test_10k_ratios_use_only_period_aligned_point_in_time_facts(self):
+        event_time = __import__("datetime").datetime.fromisoformat("2021-03-01T00:00:00+00:00")
+        row = {}
+        fields = []
+        for metric, value in (("revenue_10k", "1000"), ("net_income_10k", "100"),
+                              ("operating_income_10k", "200")):
+            row.update({
+                f"financial_{metric}_value": value,
+                f"financial_{metric}_unit": "USD",
+                f"financial_{metric}_selection_status": "SELECTED_AS_OF_EVENT",
+                f"financial_{metric}_fact_available_after_utc": "2021-02-01T00:00:00Z",
+                f"financial_{metric}_period_start": "2020-01-01",
+                f"financial_{metric}_period_end": "2020-12-31",
+                f"financial_{metric}_period_kind": "annual",
+            })
+            fields.append(f"financial_{metric}_value")
+        groups = _event_features(row, fields, event_time)
+        self.assertAlmostEqual(groups["financial_10k"]["financial_10k.net_income_to_revenue"], 0.1)
+        self.assertAlmostEqual(groups["financial_10k"]["financial_10k.operating_income_to_revenue"], 0.2)
+
+        row["financial_net_income_10k_period_start"] = "2019-01-01"
+        groups = _event_features(row, fields, event_time)
+        self.assertNotIn("financial_10k.net_income_to_revenue", groups["financial_10k"])
+
     def test_constant_predictions_have_undefined_spearman_without_warning(self):
         from stock_analyzer.sec_signal_models import _metrics
         result = _metrics([0.01, -0.02, 0.03], [0.0, 0.0, 0.0])
@@ -116,6 +140,12 @@ class SecSignalModelTests(unittest.TestCase):
                     "financial_assets_selection_status": "SELECTED_AS_OF_EVENT",
                     "financial_assets_fact_available_after_utc": f"{event_day.isoformat()}T11:00:00Z",
                     "financial_assets_unit": "USD", "label_primary_sample_eligible": "true",
+                    "financial_assets_10k_value": str(100000 + index * 500),
+                    "financial_assets_10k_selection_status": "SELECTED_AS_OF_EVENT",
+                    "financial_assets_10k_fact_available_after_utc": f"{event_day.isoformat()}T10:00:00Z",
+                    "financial_assets_10q_value": str(90000 + index * 400),
+                    "financial_assets_10q_selection_status": "SELECTED_AS_OF_EVENT",
+                    "financial_assets_10q_fact_available_after_utc": f"{event_day.isoformat()}T10:30:00Z",
                     "label_event_available_at_utc": f"{event_day.isoformat()}T12:00:00Z",
                     "label_benchmark_symbol": "SPY", "label_label_status_5d": "OK",
                     "label_label_status_20d": "OK", "label_excess_return_5d": f"{(index % 11 - 5) / 1000:.6f}",
@@ -147,6 +177,8 @@ class SecSignalModelTests(unittest.TestCase):
                 predictions = list(csv.DictReader(stream))
             self.assertTrue(predictions)
             self.assertIn("prediction_price_only", predictions[0])
+            self.assertIn("prediction_price_plus_10k", predictions[0])
+            self.assertIn("prediction_price_plus_10q", predictions[0])
             self.assertIn("prediction_price_plus_all_sec", predictions[0])
             self.assertEqual(result["summary"]["forecast_status"], "RESEARCH_ONLY_SELECTED_COHORT_EXPLORATORY")
             self.assertIn("mae_delta_vs_price_only", result["summary"]["horizons"]["5s"]["metrics"]["price_plus_all_sec"])
