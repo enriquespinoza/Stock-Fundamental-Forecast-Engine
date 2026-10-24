@@ -1,6 +1,6 @@
 # Stock Fundamental Forecast Engine
 
-Research engine for SEC filing, financial-statement, market, and macro features intended to estimate future stock returns. Works alongside TMF Predictive Analytics and informs the portfolio optimizer before the execution engine acts.
+Research engine for SEC filing, financial-statement, insider, and market-price features intended to assess company fundamentals and study future stock returns. Works alongside TMF Predictive Analytics and informs the portfolio optimizer before the execution engine acts. Macroeconomic indicators and interest-rate analysis are handled by TMF and are not included in this engine.
 
 **Status: SEC normalization, point-in-time financial joins, and return-label tooling are implemented. Comparative filing-signal research and validated forecasts remain in progress. No established predictive edge or orders.**
 
