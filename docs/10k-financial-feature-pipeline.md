@@ -58,4 +58,4 @@ python scripts/diagnose_sec_signal_evaluation.py \
   --research-dataset "$RESEARCH"
 ```
 
-The diagnostic rechecks prediction and dataset hashes, joins by event ID, recomputes the chronological split and overlapping-outcome purge, then writes model MAE/RMSE/bias and 10-K/10-Q fact coverage by issuer and event year. Review subgroup sample sizes before comparing scores; these breakdowns are descriptive and are not independent confirmations of predictive value.
+The diagnostic rechecks prediction and dataset hashes, joins by event ID, recomputes the chronological split and overlapping-outcome purge, then writes model MAE/RMSE/bias and 10-K/10-Q fact coverage by issuer and filing year. Review subgroup sample sizes before comparing scores; these breakdowns are descriptive and are not independent confirmations of predictive value.
