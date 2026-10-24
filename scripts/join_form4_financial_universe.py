@@ -19,6 +19,9 @@ def main() -> int:
     print(f"Issuers joined: {summary['issuer_count']}")
     print(f"Metrics per event: {summary['metric_count']}")
     print(f"Selected as-of fact rows: {summary['selected_fact_rows']}")
+    print(f"Selected general / 10-K / 10-Q rows: "
+          f"{summary['selected_base_fact_rows']} / {summary['selected_10k_fact_rows']} / "
+          f"{summary['selected_10q_fact_rows']}")
     print(f"No eligible fact rows: {summary['missing_metric_rows']}")
     print(f"Point-in-time universe join -> {result['output_dir']}")
     return 0
