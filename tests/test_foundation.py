@@ -11,7 +11,7 @@ import sys
 from urllib.error import HTTPError
 
 from stock_analyzer.ledger import build_ledger, eligible_as_of, normalize_cik, parse_timestamp
-from stock_analyzer.sec_client import SecClient
+from stock_analyzer.sec_client import SecClient, Snapshot
 
 
 def page(accepted="2026-10-09T20:30:00Z", accession="0000000001-26-000001", form="10-Q"):
@@ -203,6 +203,65 @@ class ClientTests(unittest.TestCase):
 
 
 class IngestionTests(unittest.TestCase):
+    def ingest_duplicate_observations(self, first_observed, second_observed):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            primary = {"cik": 1, "filings": {"recent": page(), "files": [
+                {"name": "CIK0000000001-submissions-001.json"}]}}
+            urls = ("https://data.sec.gov/submissions/CIK0000000001.json",
+                    "https://data.sec.gov/submissions/CIK0000000001-submissions-001.json",
+                    "https://data.sec.gov/api/xbrl/companyfacts/CIK0000000001.json")
+            snapshots = []
+            for payload, url, observed in zip((primary, page(), {"cik": 1, "facts": {}}), urls,
+                                              (first_observed, second_observed, second_observed)):
+                raw = json.dumps(payload).encode()
+                digest = hashlib.sha256(raw).hexdigest()
+                path = root / f"{digest}.json"
+                path.write_bytes(raw)
+                snapshots.append(Snapshot(payload, url, observed, digest, path, True))
+            by_url = {snapshot.source_url: snapshot for snapshot in snapshots}
+            script = Path(__file__).resolve().parents[1] / "scripts" / "ingest_sec_filings.py"
+            with patch.object(sys, "argv", [str(script), "--cik", "1", "--output-root", str(root)]), \
+                 patch("stock_analyzer.sec_client.SecClient") as client_type:
+                client_type.return_value.fetch_json.side_effect = lambda url, **kwargs: by_url[url]
+                runpy.run_path(str(script), run_name="__main__")
+            ledger_path, = root.glob("processed/*/*/filing_ledger.jsonl")
+            rows = [json.loads(line) for line in ledger_path.read_text().splitlines()]
+            manifest = json.loads(ledger_path.with_name("manifest.json").read_text())
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(manifest["row_count"], 1)
+            self.assertEqual(manifest["ledger_sha256"], hashlib.sha256(ledger_path.read_bytes()).hexdigest())
+            return rows[0], [snapshot.sha256 for snapshot in snapshots]
+
+    def test_cli_duplicate_observations_keep_earliest(self):
+        cases = (
+            ("2026-10-12T12:00:00Z", "2026-10-12T12:00:00.500000Z", 0, "2026-10-12T12:00:00Z"),
+            ("2026-10-12T12:00:00.500000Z", "2026-10-12T12:00:00Z", 1, "2026-10-12T12:00:00Z"),
+            ("2026-10-12T12:00:00.100000Z", "2026-10-12T12:00:00.500000Z", 0,
+             "2026-10-12T12:00:00.100000Z"),
+            ("2026-10-12T12:00:01Z", "2026-10-12T12:00:00.500000Z", 1,
+             "2026-10-12T12:00:00.500000Z"),
+        )
+        for first, second, selected, expected in cases:
+            with self.subTest(first=first, second=second):
+                row, hashes = self.ingest_duplicate_observations(first, second)
+                self.assertEqual(row["observed_at_utc"], expected)
+                self.assertEqual(row["live_available_after_utc"], expected)
+                self.assertEqual(row["submissions_snapshot_sha256"], hashes[selected])
+
+    def test_cli_duplicate_observations_keep_first_for_equal_instants(self):
+        cases = (
+            ("2026-10-12T08:00:00-04:00", "2026-10-12T12:00:00Z", "2026-10-12T12:00:00Z"),
+            ("2026-10-12T12:00:00Z", "2026-10-12T13:00:00+01:00", "2026-10-12T12:00:00Z"),
+            ("2026-10-12T12:00:00.000000Z", "2026-10-12T08:00:00-04:00", "2026-10-12T12:00:00Z"),
+        )
+        for first, second, expected in cases:
+            with self.subTest(first=first, second=second):
+                row, hashes = self.ingest_duplicate_observations(first, second)
+                self.assertEqual(row["observed_at_utc"], expected)
+                self.assertEqual(row["live_available_after_utc"], expected)
+                self.assertEqual(row["submissions_snapshot_sha256"], hashes[0])
+
     def test_cli_archives_pages_and_preserves_cached_observation_time(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
