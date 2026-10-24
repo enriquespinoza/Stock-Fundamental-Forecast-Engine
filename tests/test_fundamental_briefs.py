@@ -70,6 +70,12 @@ class FundamentalBriefTests(unittest.TestCase):
             self.assertIn("TWO_LATEST_ANNUAL_CFO_PERIODS_NEGATIVE", codes)
             self.assertIn("REVENUE_DECLINED_TWICE", codes)
             self.assertIn("LIABILITIES_EXCEED_ASSETS", codes)
+            revenue_signal = next(signal for signal in brief["review_signals"]
+                                  if signal["code"] == "REVENUE_DECLINED_TWICE")
+            self.assertEqual([row["value"] for row in revenue_signal["evidence"]], ["120", "100", "80"])
+            self.assertEqual(len(revenue_signal["year_over_year_changes"]), 2)
+            self.assertEqual(revenue_signal["evidence"][-1]["accession_number"],
+                             "0000000001-2025-revenue-2024")
             self.assertNotIn(future["accession_number"], json.dumps(brief))
             self.assertEqual(result["summary"]["research_status"],
                              "DESCRIPTIVE_RESEARCH_ONLY_NO_ALLOCATION_EFFECT")
