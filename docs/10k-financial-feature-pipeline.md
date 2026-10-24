@@ -47,3 +47,15 @@ The research-dataset builder checks that the events, financial join, and labels 
 The evaluator reports `price_only`, `price_plus_10k`, `price_plus_10q`, `price_plus_insider_10k`, `price_plus_insider_10q`, the existing mixed `price_plus_financial`, and `price_plus_all_sec`. The family tracks include signed-log fact levels plus period-aligned margins and balance-sheet ratios. The 10-K/10-Q comparisons use identical chronological splits and target events. A missing family-specific fact is explicitly encoded as unavailable; the model does not substitute another filing family or zero accounting values.
 
 This is an exploratory selected-cohort test. The available manual financial review has not validated every fact mapping, and the current cohort is selected from a 2026 S&P 500 snapshot. The 10-K pipeline here evaluates structured XBRL financial facts, not the full 10-K text, MD&A, risk factors, or management guidance. It does not provide evidence of a generalizable edge or permission to deploy forecasts. All outputs remain research-only.
+
+## Diagnose the holdout by issuer and filing year
+
+After an evaluation run, use its prediction artifact with the exact research dataset recorded in the evaluation manifest:
+
+```bash
+python scripts/diagnose_sec_signal_evaluation.py \
+  --evaluation-run "data/processed/sec_signal_model_evaluations/<evaluation-run>" \
+  --research-dataset "$RESEARCH"
+```
+
+The diagnostic rechecks prediction and dataset hashes, joins by event ID, recomputes the chronological split and overlapping-outcome purge, then writes model MAE/RMSE/bias and 10-K/10-Q fact coverage by issuer and event year. Review subgroup sample sizes before comparing scores; these breakdowns are descriptive and are not independent confirmations of predictive value.
