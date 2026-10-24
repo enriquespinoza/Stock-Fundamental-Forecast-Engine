@@ -10,6 +10,10 @@ from .ledger import normalize_cik, parse_timestamp, utc_text
 from .point_in_time import (
     FACT_COLUMNS,
     METRIC_ORDER,
+    PIT_METRIC_ORDER,
+    REPORT_FAMILIES,
+    _latest_report_fact,
+    _report_family_facts,
     _feature_row,
     _latest_fact,
     _sha256,
@@ -85,6 +89,13 @@ def join_form4_events_to_financial_universe(events_path: Path, financials_root: 
         for metric in METRIC_ORDER:
             fact = _latest_fact([row for row in all_selected if row["metric"] == metric], metric)
             output_rows.append(_feature_row(event, metric, fact, event_time))
+        for family in REPORT_FAMILIES:
+            family_rows = _report_family_facts(
+                normalized.get("facts", []), event["historical_available_after_utc"], family)
+            for metric in METRIC_ORDER:
+                fact = _latest_report_fact(
+                    [row for row in family_rows if row["metric"] == metric], metric, family)
+                output_rows.append(_feature_row(event, f"{metric}_{family}", fact, event_time))
 
     stamp = utc_text(parse_timestamp(built_at_utc)) if built_at_utc else utc_text(datetime.now(timezone.utc))
     folder = output_root / stamp.replace(":", "-")
@@ -96,14 +107,19 @@ def join_form4_events_to_financial_universe(events_path: Path, financials_root: 
         writer.writerows(output_rows)
 
     summary = {
-        "schema_version": "form4-point-in-time-universe-summary-v1",
+        "schema_version": "form4-point-in-time-universe-summary-v2",
         "event_count": len(events),
         "issuer_count": len(required_ciks),
         "event_counts_by_issuer_cik": dict(sorted(event_counts.items())),
-        "metric_count": len(METRIC_ORDER),
+        "metric_count": len(PIT_METRIC_ORDER), "base_metric_count": len(METRIC_ORDER),
+        "report_family_metric_count": len(PIT_METRIC_ORDER) - len(METRIC_ORDER),
+        "report_family_policy": "10-K duration facts annual only; 10-Q duration facts quarter only; instant facts retained by form",
         "event_metric_rows": len(output_rows),
         "selected_fact_rows": sum(row["selection_status"] == "SELECTED_AS_OF_EVENT" for row in output_rows),
         "missing_metric_rows": sum(row["selection_status"] != "SELECTED_AS_OF_EVENT" for row in output_rows),
+        "selected_base_fact_rows": sum(row["metric"] in METRIC_ORDER and row["selection_status"] == "SELECTED_AS_OF_EVENT" for row in output_rows),
+        "selected_10k_fact_rows": sum(row["metric"].endswith("_10k") and row["selection_status"] == "SELECTED_AS_OF_EVENT" for row in output_rows),
+        "selected_10q_fact_rows": sum(row["metric"].endswith("_10q") and row["selection_status"] == "SELECTED_AS_OF_EVENT" for row in output_rows),
         "financial_issues_by_issuer_cik": dict(sorted(issue_counts.items())),
         "label_status": "NOT_CREATED",
     }
@@ -114,14 +130,14 @@ def join_form4_events_to_financial_universe(events_path: Path, financials_root: 
         for cik in sorted(required_ciks)
     ]
     manifest = {
-        "schema_version": "form4-point-in-time-universe-manifest-v1",
+        "schema_version": "form4-point-in-time-universe-manifest-v2",
         "built_at_utc": stamp,
         "event_input": {"path": str(events_path), "sha256": _sha256(events_raw)},
         "financials_inputs": financial_inputs,
         "output": {"path": str(output_path), "sha256": _sha256(output_path.read_bytes()),
                    "row_count": len(output_rows)},
         "summary_sha256": _sha256(summary_path.read_bytes()),
-        "availability_policy": "historical_available_after_utc inclusive cutoff; same issuer CIK only",
+        "availability_policy": "historical_available_after_utc inclusive cutoff; same issuer CIK only; each report family versioned separately",
         "forecast_status": "NOT_IMPLEMENTED",
     }
     (folder / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
