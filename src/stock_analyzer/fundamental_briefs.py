@@ -40,6 +40,15 @@ def _metric_series(rows: list[dict], metric: str, family: str) -> list[dict]:
     return sorted(eligible, key=lambda row: (row["period_end"], row.get("period_start") or ""), reverse=True)
 
 
+def _evidence_fact(row: dict) -> dict:
+    return {key: row.get(source) for key, source in (
+        ("metric", "metric"), ("value", "value"), ("unit", "unit"),
+        ("period_start", "period_start"), ("period_end", "period_end"),
+        ("form", "form"), ("tag", "tag"), ("accession_number", "accession_number"),
+        ("available_after_utc", "historical_available_after_utc"), ("source_url", "source_url"),
+    )}
+
+
 def _fact_view(row: dict | None, as_of_time) -> dict:
     if row is None:
         return {"status": "INSUFFICIENT_DATA", "value": None, "unit": None,
@@ -111,14 +120,22 @@ def _review_signals(rows: list[dict], annual: dict[str, list[dict]]) -> list[dic
         if len(series) >= 2 and all(Decimal(row["value"]) < 0 for row in series[:2]):
             signals.append({"code": name, "status": "FLAG_FOR_REVIEW", "description": text,
                             "periods": [row["period_end"] for row in series[:2]],
-                            "accessions": [row["accession_number"] for row in series[:2]]})
+                            "accessions": [row["accession_number"] for row in series[:2]],
+                            "evidence": [_evidence_fact(row) for row in reversed(series[:2])]})
     revenue = annual["revenue"]
     if len(revenue) >= 3 and all(Decimal(revenue[i]["value"]) < Decimal(revenue[i + 1]["value"])
                                  for i in range(2)):
         signals.append({"code": "REVENUE_DECLINED_TWICE", "status": "FLAG_FOR_REVIEW",
                         "description": "Revenue declined across the two latest annual comparisons.",
                         "periods": [row["period_end"] for row in revenue[:3]],
-                        "accessions": [row["accession_number"] for row in revenue[:3]]})
+                        "accessions": [row["accession_number"] for row in revenue[:3]],
+                        "evidence": [_evidence_fact(row) for row in reversed(revenue[:3])],
+                        "year_over_year_changes": [
+                            {"from_period_end": before["period_end"], "to_period_end": after["period_end"],
+                             "change_percent": float((Decimal(after["value"]) / Decimal(before["value"]) - 1) * 100)}
+                            for before, after in zip(reversed(revenue[:3]), list(reversed(revenue[:3]))[1:])
+                            if Decimal(before["value"]) != 0
+                        ]})
     assets = _metric_series(rows, "assets", "10k")
     liabilities = _metric_series(rows, "liabilities", "10k")
     if assets and liabilities and assets[0]["period_end"] == liabilities[0]["period_end"]:
@@ -126,7 +143,8 @@ def _review_signals(rows: list[dict], annual: dict[str, list[dict]]) -> list[dic
             signals.append({"code": "LIABILITIES_EXCEED_ASSETS", "status": "FLAG_FOR_REVIEW",
                             "description": "Reported liabilities exceed reported assets; review the filing context and equity position.",
                             "periods": [assets[0]["period_end"]],
-                            "accessions": [assets[0]["accession_number"], liabilities[0]["accession_number"]]})
+                            "accessions": [assets[0]["accession_number"], liabilities[0]["accession_number"]],
+                            "evidence": [_evidence_fact(assets[0]), _evidence_fact(liabilities[0])]})
     return signals
 
 
@@ -213,12 +231,16 @@ def build_fundamental_briefs(financials_root: Path, universe_path: Path, as_of_u
     signal_rows = [{"issuer_symbol": brief["issuer_symbol"], "issuer_cik": brief["issuer_cik"],
                     **signal} for brief in briefs for signal in brief["review_signals"]]
     signals_path = out_dir / "review_signals.csv"
-    signal_fields = ["issuer_symbol", "issuer_cik", "code", "status", "description", "periods", "accessions"]
+    signal_fields = ["issuer_symbol", "issuer_cik", "code", "status", "description", "periods",
+                     "accessions", "evidence", "year_over_year_changes"]
     with signals_path.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=signal_fields, lineterminator="\n")
         writer.writeheader()
         for row in signal_rows:
-            writer.writerow({**row, "periods": json.dumps(row["periods"]), "accessions": json.dumps(row["accessions"])})
+            writer.writerow({**row, "periods": json.dumps(row["periods"]),
+                             "accessions": json.dumps(row["accessions"]),
+                             "evidence": json.dumps(row["evidence"], sort_keys=True),
+                             "year_over_year_changes": json.dumps(row.get("year_over_year_changes", []), sort_keys=True)})
     summary = {"schema_version": "issuer-fundamental-brief-summary-v1",
                "research_status": "DESCRIPTIVE_RESEARCH_ONLY_NO_ALLOCATION_EFFECT",
                "as_of_utc": as_of_text, "universe_count": len(universe), "brief_count": len(briefs),
