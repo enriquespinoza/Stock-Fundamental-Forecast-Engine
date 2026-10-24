@@ -42,7 +42,7 @@ python scripts/build_issuer_fundamental_briefs.py \
   --as-of "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 ```
 
-The run writes an issuer JSONL brief, a CSV of review prompts, summary, and hash manifest under `data/processed/fundamental_briefs/`. The first prompts are deliberately narrow: two consecutive annual periods of negative operating cash flow, free cash flow, or operating income; two annual revenue declines; and liabilities above assets at the same annual balance-sheet date. These are **unvalidated review rules**, with no severity ranking or optimizer effect.
+The run writes an issuer JSONL brief, a CSV of review prompts, summary, and hash manifest under `data/processed/fundamental_briefs/`. Every prompt carries fact values, units, periods, XBRL tags, filing accessions, availability timestamps, and source links; annual revenue prompts also include the two year-over-year percentage changes. The first prompts are deliberately narrow: two consecutive annual periods of negative operating cash flow, free cash flow, or operating income; two annual revenue declines; and liabilities above assets at the same annual balance-sheet date. These are **unvalidated review rules**, with no severity ranking or optimizer effect. A revenue decline by itself does not establish financial distress, particularly for commodity-sensitive businesses; inspect profit, cash-flow, price/volume, and management discussion context.
 
 ## Optimizer boundary
 
