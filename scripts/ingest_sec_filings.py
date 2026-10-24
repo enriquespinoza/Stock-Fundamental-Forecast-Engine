@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import re
 
-from stock_analyzer.ledger import build_ledger, normalize_cik, utc_text
+from stock_analyzer.ledger import build_ledger, normalize_cik, parse_timestamp, utc_text
 from stock_analyzer.sec_client import SecClient
 
 
@@ -49,7 +49,8 @@ def main():
                 compare_keys = ("form", "filing_date", "report_date", "accepted_at_utc", "primary_document")
                 if any(prior[k] != row[k] for k in compare_keys):
                     raise ValueError(f"Conflicting accession across pages: {key}")
-                if prior["observed_at_utc"] <= row["observed_at_utc"]:
+                # Keep the earliest observation; equal instants retain the first source.
+                if parse_timestamp(prior["observed_at_utc"]) <= parse_timestamp(row["observed_at_utc"]):
                     continue
             source_records[key] = row.copy()
             row["submissions_snapshot_sha256"] = snapshot.sha256
