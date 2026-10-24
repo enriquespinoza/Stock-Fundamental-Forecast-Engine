@@ -1,6 +1,6 @@
 {
   "schema_version": "official-context-source-registry-v1",
-  "registry_status": "CANDIDATE_SERIES_REQUIRES_REVIEW_BEFORE_INGESTION",
+  "registry_status": "SUPERSEDED_DO_NOT_USE_FOR_INGESTION",
   "research_only": true,
   "entries": [
     {
