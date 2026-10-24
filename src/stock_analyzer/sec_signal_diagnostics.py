@@ -58,6 +58,10 @@ def _group_key(row: dict, group_by: str) -> str:
     if group_by == "issuer":
         return (row.get("issuer_symbol") or "UNKNOWN").strip().upper()
     if group_by == "year":
+        event = row.get("_event", {})
+        filing_date = event.get("filing_date", "")
+        if len(filing_date) >= 4 and filing_date[:4].isdigit():
+            return filing_date[:4]
         available = parse_timestamp(row["historical_available_after_utc"])
         return str(available.year)
     raise ValueError("group_by must be 'issuer' or 'year'")
