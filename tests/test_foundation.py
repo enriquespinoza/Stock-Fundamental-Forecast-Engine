@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import hashlib
 from io import BytesIO
 import json
 from pathlib import Path
@@ -10,7 +11,7 @@ import sys
 from urllib.error import HTTPError
 
 from stock_analyzer.ledger import build_ledger, eligible_as_of, normalize_cik, parse_timestamp
-from stock_analyzer.sec_client import SecClient
+from stock_analyzer.sec_client import SecClient, Snapshot
 
 
 def page(accepted="2026-10-09T20:30:00Z", accession="0000000001-26-000001", form="10-Q"):
@@ -61,6 +62,51 @@ class LedgerTests(unittest.TestCase):
     def test_issuer_mismatch_fails(self):
         with self.assertRaises(ValueError):
             self.ledger({"cik": 2, "filings": {"recent": page()}})
+
+    def test_primary_document_subdirectories_keep_provenance(self):
+        for document in ("report.htm", "xslF345X06/form4.xml",
+                         "xslF345X05/wk-form4_123.xml",
+                         "filings/exhibits/exhibit-99.1.htm", "report..xml"):
+            with self.subTest(document=document):
+                payload = page()
+                payload["primaryDocument"] = [document]
+                row, = self.ledger(payload)
+                self.assertEqual(row["primary_document"], document)
+                self.assertEqual(row["source_url"],
+                                 "https://www.sec.gov/Archives/edgar/data/1/000000000126000001/" + document)
+
+    def test_empty_primary_document_has_no_source_url(self):
+        payload = page()
+        payload["primaryDocument"] = [""]
+        row, = self.ledger(payload)
+        self.assertEqual(row["primary_document"], "")
+        self.assertIsNone(row["source_url"])
+
+    def test_primary_document_rejects_unsafe_paths(self):
+        for document in (".", "..", "../form4.xml", "./form4.xml",
+                         "xslF345X06/../form4.xml", "xslF345X06/./form4.xml",
+                         "form4.xml/..", "form4.xml/.", "/form4.xml",
+                         "//example.com/form4.xml", "https://example.com/form4.xml",
+                         "C:/form4.xml", "xslF345X06//form4.xml", "xslF345X06/",
+                         r"xslF345X06\form4.xml", r"..\form4.xml",
+                         "%2e%2e/form4.xml", "xslF345X06/%2e%2e/form4.xml",
+                         "xslF345X06%2fform4.xml", "%252e%252e/form4.xml",
+                         "xslF345X06/form4.xml?download=1", "xslF345X06/form4.xml#part",
+                         " form4.xml", "form4.xml\n", "xslF345X06/\tform4.xml",
+                         "form4.xml\x00", "xslF345X06/\uff0e\uff0e/form4.xml"):
+            with self.subTest(document=document):
+                payload = page()
+                payload["primaryDocument"] = [document]
+                with self.assertRaisesRegex(ValueError, "Invalid primary document"):
+                    self.ledger(payload)
+
+    def test_primary_document_requires_string(self):
+        for document in (None, 1, b"form4.xml", [], {}):
+            with self.subTest(document=document):
+                payload = page()
+                payload["primaryDocument"] = [document]
+                with self.assertRaisesRegex(ValueError, "Invalid primary document"):
+                    self.ledger(payload)
 
     def test_timezone_and_identifiers(self):
         self.assertEqual(normalize_cik("320193"), "0000320193")
@@ -157,12 +203,72 @@ class ClientTests(unittest.TestCase):
 
 
 class IngestionTests(unittest.TestCase):
+    def ingest_duplicate_observations(self, first_observed, second_observed):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            primary = {"cik": 1, "filings": {"recent": page(), "files": [
+                {"name": "CIK0000000001-submissions-001.json"}]}}
+            urls = ("https://data.sec.gov/submissions/CIK0000000001.json",
+                    "https://data.sec.gov/submissions/CIK0000000001-submissions-001.json",
+                    "https://data.sec.gov/api/xbrl/companyfacts/CIK0000000001.json")
+            snapshots = []
+            for payload, url, observed in zip((primary, page(), {"cik": 1, "facts": {}}), urls,
+                                              (first_observed, second_observed, second_observed)):
+                raw = json.dumps(payload).encode()
+                digest = hashlib.sha256(raw).hexdigest()
+                path = root / f"{digest}.json"
+                path.write_bytes(raw)
+                snapshots.append(Snapshot(payload, url, observed, digest, path, True))
+            by_url = {snapshot.source_url: snapshot for snapshot in snapshots}
+            script = Path(__file__).resolve().parents[1] / "scripts" / "ingest_sec_filings.py"
+            with patch.object(sys, "argv", [str(script), "--cik", "1", "--output-root", str(root)]), \
+                 patch("stock_analyzer.sec_client.SecClient") as client_type:
+                client_type.return_value.fetch_json.side_effect = lambda url, **kwargs: by_url[url]
+                runpy.run_path(str(script), run_name="__main__")
+            ledger_path, = root.glob("processed/*/*/filing_ledger.jsonl")
+            rows = [json.loads(line) for line in ledger_path.read_text().splitlines()]
+            manifest = json.loads(ledger_path.with_name("manifest.json").read_text())
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(manifest["row_count"], 1)
+            self.assertEqual(manifest["ledger_sha256"], hashlib.sha256(ledger_path.read_bytes()).hexdigest())
+            return rows[0], [snapshot.sha256 for snapshot in snapshots]
+
+    def test_cli_duplicate_observations_keep_earliest(self):
+        cases = (
+            ("2026-10-12T12:00:00Z", "2026-10-12T12:00:00.500000Z", 0, "2026-10-12T12:00:00Z"),
+            ("2026-10-12T12:00:00.500000Z", "2026-10-12T12:00:00Z", 1, "2026-10-12T12:00:00Z"),
+            ("2026-10-12T12:00:00.100000Z", "2026-10-12T12:00:00.500000Z", 0,
+             "2026-10-12T12:00:00.100000Z"),
+            ("2026-10-12T12:00:01Z", "2026-10-12T12:00:00.500000Z", 1,
+             "2026-10-12T12:00:00.500000Z"),
+        )
+        for first, second, selected, expected in cases:
+            with self.subTest(first=first, second=second):
+                row, hashes = self.ingest_duplicate_observations(first, second)
+                self.assertEqual(row["observed_at_utc"], expected)
+                self.assertEqual(row["live_available_after_utc"], expected)
+                self.assertEqual(row["submissions_snapshot_sha256"], hashes[selected])
+
+    def test_cli_duplicate_observations_keep_first_for_equal_instants(self):
+        cases = (
+            ("2026-10-12T08:00:00-04:00", "2026-10-12T12:00:00Z", "2026-10-12T12:00:00Z"),
+            ("2026-10-12T12:00:00Z", "2026-10-12T13:00:00+01:00", "2026-10-12T12:00:00Z"),
+            ("2026-10-12T12:00:00.000000Z", "2026-10-12T08:00:00-04:00", "2026-10-12T12:00:00Z"),
+        )
+        for first, second, expected in cases:
+            with self.subTest(first=first, second=second):
+                row, hashes = self.ingest_duplicate_observations(first, second)
+                self.assertEqual(row["observed_at_utc"], expected)
+                self.assertEqual(row["live_available_after_utc"], expected)
+                self.assertEqual(row["submissions_snapshot_sha256"], hashes[0])
+
     def test_cli_archives_pages_and_preserves_cached_observation_time(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             primary = {"cik": 1, "filings": {"recent": page(), "files": [
                 {"name": "CIK0000000001-submissions-001.json"}]}}
-            historical = page(None, "0000000001-25-000001", "10-K")
+            historical = page(None, "0000000001-25-000001", "4")
+            historical["primaryDocument"] = ["xslF345X06/form4.xml"]
             responses = iter([primary, historical, {"cik": 1, "facts": {}}])
             real_client = SecClient("StockResearch test@example.com", root / "raw" / "sec",
                 opener=lambda request, timeout: BytesIO(json.dumps(next(responses)).encode()),
@@ -178,6 +284,11 @@ class IngestionTests(unittest.TestCase):
             self.assertEqual(len(rows), 2)
             self.assertEqual(len(manifest["sources"]), 3)
             self.assertEqual(manifest["history_scope"], "all_declared_pages")
+            self.assertEqual(manifest["ledger_sha256"], hashlib.sha256(ledger_path.read_bytes()).hexdigest())
+            insider = next(row for row in rows if row["form"] == "4")
+            self.assertEqual(insider["primary_document"], "xslF345X06/form4.xml")
+            self.assertEqual(insider["source_url"],
+                             "https://www.sec.gov/Archives/edgar/data/1/000000000125000001/xslF345X06/form4.xml")
             current = next(row for row in rows if row["form"] == "10-Q")
             self.assertEqual(current["live_available_after_utc"], "2026-10-12T12:00:00Z")
             self.assertEqual(len(eligible_as_of(rows, "2026-10-12T12:00:00Z")), 1)
